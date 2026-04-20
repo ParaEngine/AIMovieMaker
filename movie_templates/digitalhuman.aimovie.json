@@ -1,0 +1,105 @@
+{
+    "id": "digitalhuman_female_waiter",
+    "title": "数字人动画 - 女服务员",
+    "description": "预设数字人短视频动画模板，包含常用动作：待机、说话、写字、编程、点赞、鼓掌、引导、倾听、挥手、阅读",
+    "settings": {
+        "ratio": "9:16",
+        "model": "seedance-2.0-fast",
+        "generateAudio": false,
+        "defaultDuration": 3
+    },
+    "characters": [
+        {
+            "name": "数字人",
+            "description": "数字人角色，支持多种动作动画"
+        }
+    ],
+    "scenes": [
+        {
+            "name": "绿幕",
+            "description": "纯绿色背景，用于后期合成抠像"
+        }
+    ],
+    "shorts": [
+        {
+            "order": 1,
+            "prompt": "待机",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/idle_new.webp"],
+            "duration": 3
+        },
+        {
+            "order": 2,
+            "prompt": "说话",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/talk.webp"],
+            "duration": 3
+        },
+        {
+            "order": 3,
+            "prompt": "写字/记录",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/write.webp"],
+            "duration": 3
+        },
+        {
+            "order": 4,
+            "prompt": "查询/编程",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/pad.webp"],
+            "duration": 3
+        },
+        {
+            "order": 5,
+            "prompt": "点赞",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/like.webp"],
+            "duration": 3
+        },
+        {
+            "order": 6,
+            "prompt": "鼓掌",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/clap.webp"],
+            "duration": 3
+        },
+        {
+            "order": 7,
+            "prompt": "引导",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/guide.webp"],
+            "duration": 3
+        },
+        {
+            "order": 8,
+            "prompt": "倾听",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/listen.webp"],
+            "duration": 3
+        },
+        {
+            "order": 9,
+            "prompt": "挥手",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/wave.webp"],
+            "duration": 3
+        },
+        {
+            "order": 10,
+            "prompt": "阅读",
+            "characterNames": ["数字人"],
+            "sceneName": "绿幕",
+            "imageUrls": ["https://cdn.keepwork.com/digitalhuman/v1/female/femalewaiter-new/read.webp"],
+            "duration": 3
+        }
+    ]
+}

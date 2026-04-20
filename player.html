@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互动电影播放器 - AI Movie Player</title>
+    <script src="https://cdn.keepwork.com/sdk/keepworkSDK.iife.js?v=20260413"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; background: #05050a; color: #e0e0e0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+        #app { height: 100vh; display: flex; flex-direction: column; }
+        .loader { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+        .loader-msg { color: #aaa; font-size: 14px; }
+        .loader input, .loader textarea { background: #13131f; color: #e0e0e0; border: 1px solid #26263a; border-radius: 8px; padding: 8px 12px; min-width: 320px; font-family: inherit; font-size: 13px; }
+        .loader textarea { min-height: 160px; font-family: monospace; font-size: 11px; }
+        .loader button { background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 10px 22px; cursor: pointer; font-weight: 600; }
+        .loader button.secondary { background: #1a1a2e; color: #ccc; border: 1px solid #333; }
+        .loader h1 { font-size: 22px; font-weight: 700; color: #fff; }
+        .loader h1 span { color: #818cf8; }
+        .loader .err { color: #fca5a5; font-size: 13px; max-width: 480px; text-align: center; }
+        .loader label { color: #aaa; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="loader" id="loader">
+            <h1>AI <span>互动电影</span> 播放器</h1>
+            <div class="loader-msg" id="loaderMsg">准备加载…</div>
+            <div id="loaderControls" style="display:none;flex-direction:column;gap:12px;align-items:center">
+                <label>
+                    项目文件名（.aimovie.md 或 .aiplot.md）
+                    <input id="fileInput" type="text" placeholder="例如：我的互动电影.aiplot.md">
+                </label>
+                <div style="display:flex;gap:8px">
+                    <button id="loadFileBtn">从工作区加载</button>
+                    <button id="pasteBtn" class="secondary">粘贴 JSON</button>
+                    <button id="chooseFileBtn" class="secondary">选择本地文件</button>
+                </div>
+                <input id="localFilePicker" type="file" accept=".md,.json,.aimovie,.aiplot" style="display:none">
+                <textarea id="pasteArea" placeholder="粘贴 .aimovie.md 或 .aiplot.md 的内容..." style="display:none"></textarea>
+                <div style="display:none" id="pasteActions">
+                    <button id="loadPasteBtn">从粘贴内容加载</button>
+                </div>
+            </div>
+            <div class="err" id="loaderErr"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import MoviePlayer from './js/movieplayer.js';
+
+        const params = new URLSearchParams(location.search);
+        const hashParams = new URLSearchParams(location.hash.slice(1));
+        const fileParam = params.get('file') || hashParams.get('file');
+        const tokenParam = params.get('token') || hashParams.get('token');
+
+        const sdk = window.keepwork || new KeepworkSDK({ timeout: 30000, token: tokenParam });
+        const loader = document.getElementById('loader');
+        const msg = document.getElementById('loaderMsg');
+        const err = document.getElementById('loaderErr');
+        const controls = document.getElementById('loaderControls');
+
+        async function loadFromWorkspace(fileName) {
+            if (!sdk.personalPageStore) throw new Error('未登录或 SDK 不可用');
+            const store = sdk.personalPageStore.withWorkspace('AIMovieMaker');
+            const raw = await store.readFile(fileName);
+            if (!raw || !raw.trim()) throw new Error('文件为空或不存在');
+            return JSON.parse(raw);
+        }
+
+        function startPlayer(payload) {
+            loader.remove();
+            const app = document.getElementById('app');
+            app.innerHTML = '<div id="playerHost" style="flex:1;min-height:0"></div>';
+            const isPlot = payload && payload.format === 'aiplot';
+            new MoviePlayer({
+                container: document.getElementById('playerHost'),
+                project: isPlot ? null : (payload?.project || payload),
+                plot: isPlot ? payload : null,
+                autoplay: true,
+            });
+        }
+
+        function showControls(errorMsg) {
+            msg.style.display = 'none';
+            controls.style.display = 'flex';
+            if (errorMsg) err.textContent = errorMsg;
+            if (fileParam) document.getElementById('fileInput').value = fileParam;
+        }
+
+        document.getElementById('loadFileBtn').onclick = async () => {
+            const name = document.getElementById('fileInput').value.trim();
+            if (!name) { err.textContent = '请填写文件名'; return; }
+            try {
+                err.textContent = '';
+                msg.style.display = 'block';
+                msg.textContent = `正在加载 ${name}…`;
+                const payload = await loadFromWorkspace(name);
+                startPlayer(payload);
+            } catch (e) {
+                msg.style.display = 'none';
+                err.textContent = '加载失败: ' + (e.message || e);
+            }
+        };
+
+        document.getElementById('pasteBtn').onclick = () => {
+            const ta = document.getElementById('pasteArea');
+            const act = document.getElementById('pasteActions');
+            ta.style.display = 'block';
+            act.style.display = 'block';
+        };
+        document.getElementById('loadPasteBtn').onclick = () => {
+            const text = document.getElementById('pasteArea').value.trim();
+            if (!text) { err.textContent = '请先粘贴内容'; return; }
+            try {
+                const payload = JSON.parse(text);
+                startPlayer(payload);
+            } catch (e) {
+                err.textContent = '无法解析 JSON: ' + (e.message || e);
+            }
+        };
+        document.getElementById('chooseFileBtn').onclick = () => document.getElementById('localFilePicker').click();
+        document.getElementById('localFilePicker').onchange = async (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            try {
+                const text = await f.text();
+                const payload = JSON.parse(text);
+                startPlayer(payload);
+            } catch (ex) {
+                err.textContent = '读取文件失败: ' + (ex.message || ex);
+            }
+        };
+
+        (async function init() {
+            if (fileParam) {
+                try {
+                    msg.textContent = `正在加载 ${fileParam}…`;
+                    const payload = await loadFromWorkspace(fileParam);
+                    startPlayer(payload);
+                    return;
+                } catch (e) {
+                    showControls('加载 ' + fileParam + ' 失败: ' + (e.message || e));
+                    return;
+                }
+            }
+            showControls();
+        })();
+    </script>
+</body>
+</html>
