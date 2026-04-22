@@ -827,40 +827,41 @@ export async function submitGenVideo(short, project) {
         watermark: short.watermark || false,
     };
 
-    const { getGlobalVideoApiKey } = await import('./global_settings.js');
-    const apiKey = getGlobalVideoApiKey();
-    const headers = { 'Accept': '*/*', 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' };
-    if (apiKey) headers['API_KEY'] = apiKey;
-    const response = await fetch(`${state.apiBase}/genVideo`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-        const errText = await response.text().catch(() => `HTTP ${response.status}`);
-        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: false, error: errText });
-        throw new Error(errText);
+    let taskId;
+    try {
+        taskId = await sdk.aiGenerators.genVideo(body.prompt, {
+            model: body.model,
+            duration: body.duration,
+            resolution: body.resolution,
+            ratio: body.ratio,
+            generateAudio: body.generateAudio,
+            watermark: body.watermark,
+            images: body.images,
+            videos: body.videos,
+            audios: body.audios,
+        });
+        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: true });
+    } catch (err) {
+        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: false, error: err.message });
+        throw err;
     }
-    const data = await response.json();
-    if (!data.taskId) throw new Error('未返回 taskId');
-    recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: true });
     // Record video gen task submission
     const proj = state.currentProject;
     if (proj) {
         if (!proj.videoGenUsage) proj.videoGenUsage = { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalDuration: 0, details: [] };
         proj.videoGenUsage.totalTasks++;
         proj.videoGenUsage.details.push({
-            taskId: data.taskId,
+            taskId: taskId,
             shortId: short.id,
             model: body.model,
             duration: body.duration,
             ratio: body.ratio,
             submittedAt: new Date().toISOString(),
             status: 'running',
-            usage: data.usage || null,
+            usage: null,
         });
     }
-    return data.taskId;
+    return taskId;
 }
 
 /**
@@ -945,15 +946,13 @@ export function startPolling(taskId, projectId, onUpdate) {
     if (state.pollingIntervals[taskId]) return;
     const poll = async () => {
         try {
-            const resp = await fetch(`${state.apiBase}/genVideo/task?taskId=${encodeURIComponent(taskId)}`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' }
-            });
-            if (!resp.ok) return;
-            const data = await resp.json();
             const proj = state.currentProject?.id === projectId ? state.currentProject : null;
             if (!proj) { stopPolling(taskId); return; }
             const short = proj.shorts.find(s => s.taskId === taskId);
+            // Resolve model from usage details or short/project settings for apiKey passthrough
+            const usageDetail = proj.videoGenUsage?.details?.find(d => d.taskId === taskId);
+            const pollModel = usageDetail?.model || short?.modelOverride || proj.settings?.model;
+            const data = await sdk.aiGenerators.getVideoTaskStatus(taskId, { model: pollModel });
             // Check if this taskId belongs to a parallel task
             const parallelMatch = !short ? findParallelTask(proj, taskId) : null;
             if (!short && !parallelMatch) { stopPolling(taskId); return; }
@@ -1104,50 +1103,32 @@ async function genImage(prompt, options = {}) {
     const {
         width = 2048,
         height = 2048,
-        provider = 'seedream',
-        model = 'seedream-5.0-lite',
+        provider,
+        model,
         compressionRatio = 10,
         images,
     } = options;
 
-    if (!prompt) throw new Error('Prompt is required');
-    if (!state.token) throw new Error('请先登录');
-
-    const url = 'https://api.keepwork.com/core/v0/gpt/genImage';
-    const { getGlobalImageApiKey, getGlobalEnableImageCacheKey } = await import('./global_settings.js');
-    const apiKey = getGlobalImageApiKey();
-    const enableImageCacheKey = getGlobalEnableImageCacheKey();
-    const headers = {
-        'Accept': '*/*',
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${state.token}`,
-    };
-    if (apiKey) headers['x-seedream-api-key'] = apiKey;
-    if (enableImageCacheKey) headers['api-cache-key'] = 'aimovie_image_v1';
-
-    const body = { prompt, width, height, provider, model, compressionRatio };
-    if (images && images.length > 0) {
-        const imageUrls = images
-            .map((item) => (typeof item === 'string' ? item : item?.url))
-            .filter(Boolean);
-        if (imageUrls.length > 0) body.images = imageUrls;
+    // Fall back to the globally-configured image model when caller does not specify one.
+    let effectiveModel = model;
+    if (!effectiveModel) {
+        try {
+            const { getGlobalImageModel } = await import('./global_settings.js');
+            effectiveModel = getGlobalImageModel() || undefined;
+        } catch (_) { /* ignore */ }
     }
 
     const t0 = Date.now();
-    const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-        recordImageCall({ label: '生成图片', model, success: false, error: `HTTP ${response.status}`, durationMs: Date.now() - t0 });
-        throw new Error(`图片生成失败: ${response.status} ${response.statusText}`);
+    try {
+        const url = await sdk.aiGenerators.genImage(prompt, {
+            width, height, provider, model: effectiveModel, compressionRatio, images,
+        });
+        recordImageCall({ label: '生成图片', model: effectiveModel || '', success: true, durationMs: Date.now() - t0 });
+        return url;
+    } catch (err) {
+        recordImageCall({ label: '生成图片', model: effectiveModel || '', success: false, error: err.message, durationMs: Date.now() - t0 });
+        throw err;
     }
-
-    const result = await response.json();
-    recordImageCall({ label: '生成图片', model, success: true, durationMs: Date.now() - t0 });
-    return result.imgUrl || result.url || result.imageUrl || null;
 }
 
 /**
@@ -1227,8 +1208,7 @@ export async function generateShotPicturebookImage(short, project) {
     const style = getImageStyleInstruction(project);
     const ratio = short.ratio || project.settings.ratio || '16:9';
 
-    // genImage only supports 1024x1024
-    const [w, h] = [1024, 1024];
+    const [w, h] = [2048, 2048];
     // Include ratio hint in the prompt for composition guidance
     const ratioHint = ratio === '9:16' ? '竖幅构图(9:16)' : ratio === '1:1' ? '方形构图(1:1)' : '宽幅构图(16:9)';
 

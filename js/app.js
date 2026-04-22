@@ -6,7 +6,7 @@ import { showToast, $ } from './utils.js';
 import { navigateTo } from './views.js';
 import { stopPolling } from './api.js';
 import { initHelp, hideHelpModal, maybeShowHelpOnFirstUse } from './help.js';
-import { showSettingsModal, hideSettingsModal } from './global_settings.js';
+import { showSettingsModal, hideSettingsModal, initGlobalSettings } from './global_settings.js';
 import { showNewProjectModal } from './newproject.js';
 import { undoProject, redoProject, setUndoRedoCallback, clearUndoRedo, saveProject, saveProjectSilent, enableLocalMode, disableLocalMode, reattachLocalDir, syncProjectFileToLocal } from './storage.js';
 import { showImportProjectModal } from './import.js';
@@ -185,6 +185,9 @@ function hideVideoModal() {
 async function init() {
     const savedTheme = localStorage.getItem('aimm_theme');
     applyTheme(savedTheme ? savedTheme === 'light' : false);
+
+    // Load global settings (API keys + model defaults) before any API call.
+    try { await initGlobalSettings(); } catch (e) { console.warn('[init] initGlobalSettings failed:', e); }
 
     // Wire up sidebar buttons
     $('themeBtn').onclick = toggleTheme;

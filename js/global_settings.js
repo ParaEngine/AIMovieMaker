@@ -1,150 +1,258 @@
 // ============ Global Settings ============
+// App-level defaults for chat/image/video models + enableImageCacheKey.
+// API keys are managed by `sdk.localAPIKeySettings` (opened via a button
+// inside the settings modal).
 
-import { $ } from './utils.js';
-import { getPromptPresetOptions } from './prompts.js';
+import { sdk } from './state.js';
+import { CONFIG } from './config.js';
 
-const SETTINGS_KEY = 'aimm_global_settings';
+const APP_SETTINGS_KEY = 'aimm_app_settings';
 
-export const LLM_OPTIONS = [
-    { value: 'keepwork-flash', label: 'Keepwork Flash (快速)' },
-    { value: 'keepwork-pro', label: 'Keepwork Pro (强力)' },
-    { value: 'keepwork-r1', label: 'Keepwork R1 (推理)' },
-    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite' },
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
-    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-];
-
-const DEFAULTS = {
-    llmModel: 'keepwork-flash',
-    llmApiKey: '',
-    imageApiKey: '',
-    videoApiKey: '',
-    promptPreset: 'zh',
+const APP_DEFAULTS = {
+    chatModel: 'keepwork-flash',
+    imageModel: 'seedream-5.0-lite',  // empty = use SDK default
+    videoModel: 'seedance-2.0-fast',
     enableImageCacheKey: false,
 };
 
-let _settings = null;
+// ---- LocalAPIKeySettings init ----
+const _localSettings = sdk.localAPIKeySettings;
+//_localSettings.workspace = CONFIG.PROJECT_WORKSPACE;
+//_localSettings.storageMode = 'personalPageStore';
 
-export function loadGlobalSettings() {
-    if (_settings) return _settings;
+/**
+ * Initialize global settings. Must be awaited at app startup before any
+ * module reads API keys or model defaults.
+ */
+export async function initGlobalSettings() {
+    await _localSettings.load();
+    loadAppSettings();
+}
+
+// ---- App-specific settings (localStorage only) ----
+let _appSettings = null;
+
+function loadAppSettings() {
+    if (_appSettings) return _appSettings;
     try {
-        const saved = localStorage.getItem(SETTINGS_KEY);
-        if (saved) { _settings = { ...DEFAULTS, ...JSON.parse(saved) }; return _settings; }
-    } catch (_) {}
-    _settings = { ...DEFAULTS };
-    return _settings;
+        const saved = localStorage.getItem(APP_SETTINGS_KEY);
+        if (saved) {
+            _appSettings = { ...APP_DEFAULTS, ...JSON.parse(saved) };
+            return _appSettings;
+        }
+    } catch (_) { /* ignore */ }
+    _appSettings = { ...APP_DEFAULTS };
+    return _appSettings;
 }
 
-export function saveGlobalSettings(settings) {
-    _settings = { ...settings };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(_settings));
+function saveAppSettings(settings) {
+    _appSettings = { ...APP_DEFAULTS, ..._appSettings, ...settings };
+    try { localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(_appSettings)); } catch (_) {}
 }
 
-export function getGlobalLLM() {
-    return loadGlobalSettings().llmModel;
-}
+// ---- Public getters ----
+export function getGlobalChatModel() { return loadAppSettings().chatModel || APP_DEFAULTS.chatModel; }
+export function getGlobalImageModel() { return loadAppSettings().imageModel || ''; }
+export function getGlobalVideoModel() { return loadAppSettings().videoModel || APP_DEFAULTS.videoModel; }
+
+// Legacy alias: used by api.js for streaming LLM requests.
+export function getGlobalLLM() { return getGlobalChatModel(); }
 
 export function getGlobalLLMApiKey() {
-    return loadGlobalSettings().llmApiKey || '';
+    const resolved = _localSettings.resolve(getGlobalChatModel());
+    return resolved?.apiKey || '';
 }
 
 export function getGlobalImageApiKey() {
-    return loadGlobalSettings().imageApiKey || '';
+    const resolved = _localSettings.resolve(getGlobalImageModel() || 'keepwork-image');
+    return resolved?.apiKey || '';
 }
 
 export function getGlobalVideoApiKey() {
-    return loadGlobalSettings().videoApiKey || '';
-}
-
-export function getGlobalPromptPreset() {
-    return loadGlobalSettings().promptPreset || 'zh';
+    const resolved = _localSettings.resolve(getGlobalVideoModel() || 'keepwork-video');
+    return resolved?.apiKey || '';
 }
 
 export function getGlobalEnableImageCacheKey() {
-    return !!loadGlobalSettings().enableImageCacheKey;
+    return !!loadAppSettings().enableImageCacheKey;
 }
+
+// Kept for backward compat with api.js (which consults project-level
+// promptPreset first). There is no longer a global UI for this.
+export function getGlobalPromptPreset() {
+    return 'zh';
+}
+
+// Legacy compat shims
+export function loadGlobalSettings() {
+    const app = loadAppSettings();
+    return {
+        chatModel: app.chatModel,
+        imageModel: app.imageModel,
+        videoModel: app.videoModel,
+        enableImageCacheKey: app.enableImageCacheKey,
+    };
+}
+export function saveGlobalSettings(settings) { saveAppSettings(settings); }
 
 // ============ Settings Modal ============
 
-let modalEl = null;
+const MODAL_ID = 'aimmGlobalSettingsModal';
 
-function ensureModal() {
-    if (modalEl) return modalEl;
-    modalEl = document.createElement('div');
-    modalEl.id = 'globalSettingsModal';
-    modalEl.className = 'hidden';
-    modalEl.style.cssText = 'position:fixed;inset:0;z-index:999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);';
-    modalEl.innerHTML = `
-        <div style="background:var(--bg-card);border:1px solid var(--border-card);border-radius:14px;padding:24px;width:340px;max-width:90vw" onclick="event.stopPropagation()">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <h3 style="font-size:15px;font-weight:600;color:var(--text-primary)">全局设置</h3>
-                <button id="globalSettingsClose" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1">&times;</button>
-            </div>
-            <div style="margin-bottom:16px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">LLM 模型</label>
-                <select id="globalLLMSelect" class="modal-input" style="cursor:pointer">
-                    ${LLM_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
-                </select>
-            </div>
-            <div style="margin-bottom:16px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">提示词版本 <span style="color:var(--text-muted);font-size:11px">(Prompt Preset)</span></label>
-                <select id="globalPromptPresetSelect" class="modal-input" style="cursor:pointer">
-                    ${getPromptPresetOptions().map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
-                </select>
-            </div>
-            <div style="margin-bottom:16px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">LLM API Key <span style="color:var(--text-muted);font-size:11px">(可选，文本模型)</span></label>
-                <input id="globalLLMApiKeyInput" type="password" class="modal-input" placeholder="留空则使用默认" style="width:100%;box-sizing:border-box" />
-            </div>
-            <div style="margin-bottom:16px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">Image API Key <span style="color:var(--text-muted);font-size:11px">(可选，图片生成)</span></label>
-                <input id="globalImageApiKeyInput" type="password" class="modal-input" placeholder="留空则使用默认" style="width:100%;box-sizing:border-box" />
-            </div>
-            <div style="margin-bottom:16px">
-                <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">Video API Key <span style="color:var(--text-muted);font-size:11px">(可选，视频生成)</span></label>
-                <input id="globalVideoApiKeyInput" type="password" class="modal-input" placeholder="留空则使用默认" style="width:100%;box-sizing:border-box" />
-            </div>
-            <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:12px;color:var(--text-secondary);cursor:pointer">
-                <input id="globalEnableImageCacheKeyInput" type="checkbox" style="accent-color:#10b981">
-                <span>启用图片 cacheKey <span style="color:var(--text-muted);font-size:11px">(默认关闭，开启后相同提示词可能命中缓存)</span></span>
-            </label>
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button id="globalSettingsSave" class="btn-primary" style="padding:6px 16px;font-size:13px">保存</button>
-            </div>
-        </div>
+function buildModelOptions(type) {
+    try {
+        const list = sdk?.aiGenerators?.getModels?.(type);
+        if (Array.isArray(list) && list.length > 0) return list.slice();
+    } catch (_) { /* ignore */ }
+    return [];
+}
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildModelField(id, label, type, currentValue) {
+    const options = buildModelOptions(type);
+    const cur = currentValue || '';
+    // Ensure current value appears in the option list
+    const allOpts = (cur && !options.includes(cur)) ? [cur, ...options] : options;
+    const optionsHtml = allOpts.map(v =>
+        `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(v)}</option>`
+    ).join('');
+    return `
+      <div class="gs-row">
+        <label class="gs-label" for="${id}">${esc(label)}</label>
+        <select id="${id}" class="gs-input gs-select">${optionsHtml}</select>
+      </div>`;
+}
+
+function ensureStyles() {
+    if (document.getElementById('aimmGlobalSettingsStyle')) return;
+    const style = document.createElement('style');
+    style.id = 'aimmGlobalSettingsStyle';
+    style.textContent = `
+      .gs-overlay { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.55);
+        display: flex; align-items: center; justify-content: center; }
+      .gs-box { background: #1e1e2e; color: #e0e0e0; border-radius: 12px; width: 480px;
+        max-width: 95vw; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      body.light .gs-box { background: #fff; color: #222; }
+      .gs-head { display: flex; align-items: center; padding: 14px 18px;
+        border-bottom: 1px solid #2d2d3d; }
+      body.light .gs-head { border-color: #eee; }
+      .gs-title { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+      .gs-close { background: none; border: none; color: #888; font-size: 22px;
+        cursor: pointer; line-height: 1; padding: 0 4px; }
+      .gs-close:hover { color: #fff; }
+      body.light .gs-close:hover { color: #000; }
+      .gs-body { padding: 16px 18px; }
+      .gs-row { margin-bottom: 14px; }
+      .gs-label { display: block; font-size: 11px; color: #888; text-transform: uppercase;
+        letter-spacing: .5px; margin-bottom: 4px; }
+      .gs-input { width: 100%; box-sizing: border-box; background: #2a2a3a;
+        border: 1px solid #3a3a4a; border-radius: 6px; padding: 8px 12px;
+        color: #e0e0e0; font-size: 13px; }
+      body.light .gs-input { background: #f5f5f7; border-color: #ddd; color: #222; }
+      .gs-input:focus { outline: none; border-color: #6366f1;
+        box-shadow: 0 0 0 2px rgba(99,102,241,.25); }
+      .gs-select { appearance: auto; cursor: pointer; }
+      .gs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px;
+        color: #ccc; cursor: pointer; }
+      body.light .gs-checkbox { color: #444; }
+      .gs-foot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid #2d2d3d; }
+      body.light .gs-foot { border-color: #eee; }
+      .gs-btn { border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px;
+        cursor: pointer; transition: background .15s; }
+      .gs-btn-primary { background: #6366f1; color: #fff; }
+      .gs-btn-primary:hover { background: #5558e6; }
+      .gs-btn-secondary { background: #333; color: #ccc; }
+      .gs-btn-secondary:hover { background: #444; }
+      body.light .gs-btn-secondary { background: #eee; color: #333; }
+      body.light .gs-btn-secondary:hover { background: #ddd; }
+      .gs-spacer { flex: 1; }
+      .gs-hint { font-size: 11px; color: #666; margin-top: 4px; }
     `;
-    modalEl.addEventListener('click', (e) => { if (e.target === modalEl) hideSettingsModal(); });
-    document.body.appendChild(modalEl);
+    document.head.appendChild(style);
+}
 
-    modalEl.querySelector('#globalSettingsClose').onclick = hideSettingsModal;
-    modalEl.querySelector('#globalSettingsSave').onclick = () => {
-        const newModel = modalEl.querySelector('#globalLLMSelect').value;
-        const newLLMApiKey = modalEl.querySelector('#globalLLMApiKeyInput').value.trim();
-        const newImageApiKey = modalEl.querySelector('#globalImageApiKeyInput').value.trim();
-        const newVideoApiKey = modalEl.querySelector('#globalVideoApiKeyInput').value.trim();
-        const newPromptPreset = modalEl.querySelector('#globalPromptPresetSelect').value;
-        const enableImageCacheKey = !!modalEl.querySelector('#globalEnableImageCacheKeyInput').checked;
-        saveGlobalSettings({ ...loadGlobalSettings(), llmModel: newModel, llmApiKey: newLLMApiKey, imageApiKey: newImageApiKey, videoApiKey: newVideoApiKey, promptPreset: newPromptPreset, enableImageCacheKey });
-        hideSettingsModal();
+function readValues(overlay) {
+    return {
+        chatModel: overlay.querySelector('#gsChatModel').value.trim(),
+        imageModel: overlay.querySelector('#gsImageModel').value.trim(),
+        videoModel: overlay.querySelector('#gsVideoModel').value.trim(),
+        enableImageCacheKey: overlay.querySelector('#gsCacheKey').checked,
     };
-
-    return modalEl;
 }
 
 export function showSettingsModal() {
-    const modal = ensureModal();
-    const settings = loadGlobalSettings();
-    modal.querySelector('#globalLLMSelect').value = settings.llmModel;
-    modal.querySelector('#globalPromptPresetSelect').value = settings.promptPreset || 'zh';
-    modal.querySelector('#globalLLMApiKeyInput').value = settings.llmApiKey || '';
-    modal.querySelector('#globalImageApiKeyInput').value = settings.imageApiKey || '';
-    modal.querySelector('#globalVideoApiKeyInput').value = settings.videoApiKey || '';
-    modal.querySelector('#globalEnableImageCacheKeyInput').checked = !!settings.enableImageCacheKey;
-    modal.style.display = 'flex';
+    ensureStyles();
+    hideSettingsModal();
+    const app = loadAppSettings();
+
+    const overlay = document.createElement('div');
+    overlay.id = MODAL_ID;
+    overlay.className = 'gs-overlay';
+    overlay.innerHTML = `
+      <div class="gs-box" role="dialog" aria-label="全局设置">
+        <div class="gs-head">
+          <h3 class="gs-title">全局设置</h3>
+          <button class="gs-close" data-gs-close>&times;</button>
+        </div>
+        <div class="gs-body">
+          ${buildModelField('gsChatModel', '聊天模型 (Chat)', 'chat', app.chatModel)}
+          ${buildModelField('gsImageModel', '图像模型 (Image)', 'image', app.imageModel)}
+          ${buildModelField('gsVideoModel', '视频模型 (Video)', 'video', app.videoModel)}
+          <div class="gs-row">
+            <label class="gs-checkbox">
+              <input type="checkbox" id="gsEnableLocalAPI" ${_localSettings.enabled ? 'checked' : ''} />
+              <span>启用本地 API Key</span>
+            </label>
+          </div>
+          <div class="gs-row">
+            <button class="gs-btn gs-btn-secondary" data-gs-open-api>🔑 配置 API Key…</button>
+            <div class="gs-hint">管理各服务商的本地 API Key 与模型映射</div>
+          </div>
+          <div class="gs-row">
+            <label class="gs-checkbox">
+              <input type="checkbox" id="gsCacheKey" ${app.enableImageCacheKey ? 'checked' : ''} />
+              <span>启用图像缓存 key</span>
+            </label>
+          </div>
+        </div>
+        <div class="gs-foot">
+          <span class="gs-spacer"></span>
+          <button class="gs-btn gs-btn-secondary" data-gs-close>取消</button>
+          <button class="gs-btn gs-btn-primary" data-gs-save>保存</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) hideSettingsModal();
+    });
+    overlay.querySelectorAll('[data-gs-close]').forEach(btn => {
+        btn.addEventListener('click', () => hideSettingsModal());
+    });
+    overlay.querySelector('#gsEnableLocalAPI').addEventListener('change', (e) => {
+        _localSettings.enabled = e.target.checked;
+        _localSettings.save();
+    });
+    overlay.querySelector('[data-gs-open-api]').addEventListener('click', () => {
+        _localSettings.show({
+            onClose: () => {
+                const cb = overlay.querySelector('#gsEnableLocalAPI');
+                if (cb) cb.checked = !!_localSettings.enabled;
+            },
+        });
+    });
+    overlay.querySelector('[data-gs-save]').addEventListener('click', () => {
+        saveAppSettings(readValues(overlay));
+        hideSettingsModal();
+    });
 }
 
 export function hideSettingsModal() {
-    if (modalEl) modalEl.style.display = 'none';
+    const el = document.getElementById(MODAL_ID);
+    if (el) el.remove();
 }

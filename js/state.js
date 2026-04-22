@@ -51,12 +51,30 @@ export function getFolders(project, category) {
     return (project.folders || []).filter(f => f.category === category).sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
+export function getSupportedVideoModels() {
+    try {
+        const list = sdk?.aiGenerators?.getModels?.('video');
+        if (Array.isArray(list) && list.length > 0) return list;
+    } catch (_) {}
+    return ['seedance-2.0-fast', 'seedance-2.0'];
+}
+
+function getGlobalVideoModelFromStorage() {
+    try {
+        const raw = localStorage.getItem('aimm_app_settings');
+        if (!raw) return '';
+        return (JSON.parse(raw) || {}).videoModel || '';
+    } catch (_) { return ''; }
+}
+
 export function normalizeProject(project) {
     if (!project) return project;
+    const videoModels = getSupportedVideoModels();
+    const defaultModel = getGlobalVideoModelFromStorage() || videoModels[0];
     project.settings = {
         resolution: '720p',
         ratio: '16:9',
-        model: 'seedance-2.0-fast',
+        model: defaultModel,
         generateAudio: true,
         defaultDuration: 5,
         narrationVoice: '',
@@ -71,6 +89,10 @@ export function normalizeProject(project) {
         customRaceSuffix: '',
         ...(project.settings || {}),
     };
+    if (project.settings.model && !videoModels.includes(project.settings.model)
+        && project.settings.model !== defaultModel) {
+        project.settings.model = defaultModel;
+    }
     project.pipelineStage = project.pipelineStage || 'draft';
     project.episodeCount = Math.max(1, parseInt(project.episodeCount) || 1);
     project.characters = (project.characters || []).map(c => ({

@@ -1,7 +1,7 @@
 // ============ Plot & Settings Detail View ============
 
 import { CONFIG, getPromptPresetOptions } from './config.js';
-import { state } from './state.js';
+import { state, getSupportedVideoModels } from './state.js';
 import { escapeHtml, $, showToast } from './utils.js';
 import { saveProject } from './storage.js';
 import VoiceTypeSelector from './VoiceTypeSelector.js';
@@ -60,8 +60,7 @@ export function renderPlotSettings(panel, proj, { onAnalyze, onSave }) {
                     <div>
                         <span class="text-xs" style="color:var(--text-muted)">模型</span>
                         <select id="settingModelInline" class="modal-input mt-1" style="width:140px;font-size:11px;padding:4px">
-                            <option value="seedance-2.0" ${proj.settings.model === 'seedance-2.0' ? 'selected' : ''}>Seedance 2.0</option>
-                            <option value="seedance-2.0-fast" ${proj.settings.model === 'seedance-2.0-fast' ? 'selected' : ''}>Seedance 2.0 Fast</option>
+                            ${getSupportedVideoModels().map(m => `<option value="${escapeHtml(m)}" ${proj.settings.model === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
                         </select>
                     </div>
                     <div>
