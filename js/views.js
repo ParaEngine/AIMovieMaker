@@ -1564,9 +1564,107 @@ function attachBreadcrumbEvents(panel) {
 }
 
 // ============ Detail Panel ============
+async function handleDetailImgPaste(e) {
+    const proj = state.currentProject;
+    if (!proj) return;
+    const { url, key } = e.detail || {};
+    if (!url || !key) return;
+    const id = state.selectedNodeId;
+    try {
+        switch (key) {
+            case 'character': {
+                const c = proj.characters.find(x => x.id === id);
+                if (!c) return;
+                preserveImageCandidate(c);
+                addImageCandidate(c, url, null);
+                await saveProject(proj);
+                showToast('已粘贴图片链接', 'success');
+                renderDetailPanel(id, 'character');
+                break;
+            }
+            case 'prop': {
+                const p = proj.props.find(x => x.id === id);
+                if (!p) return;
+                preserveImageCandidate(p);
+                addImageCandidate(p, url, null);
+                await saveProject(proj);
+                showToast('已粘贴图片链接', 'success');
+                renderDetailPanel(id, 'prop');
+                break;
+            }
+            case 'scene': {
+                const s = proj.scenes.find(x => x.id === id);
+                if (!s) return;
+                preserveImageCandidate(s);
+                addImageCandidate(s, url, null);
+                await saveProject(proj);
+                showToast('已粘贴图片链接', 'success');
+                renderDetailPanel(id, 'scene');
+                break;
+            }
+            case 'firstFrame': {
+                const sh = proj.shorts.find(x => x.id === id);
+                if (!sh) return;
+                sh.firstFrameUrl = url;
+                await saveProject(proj);
+                showToast('已粘贴首帧链接', 'success');
+                renderDetailPanel(id, 'short');
+                break;
+            }
+            case 'lastFrame': {
+                const sh = proj.shorts.find(x => x.id === id);
+                if (!sh) return;
+                sh.lastFrameUrl = url;
+                await saveProject(proj);
+                showToast('已粘贴尾帧链接', 'success');
+                renderDetailPanel(id, 'short');
+                break;
+            }
+            case 'picturebook': {
+                const sh = proj.shorts.find(x => x.id === id);
+                if (!sh) return;
+                sh.picturebookUrl = url;
+                sh.picturebookStatus = 'succeeded';
+                await saveProject(proj);
+                showToast('已粘贴绘本图片链接', 'success');
+                renderDetailPanel(id, 'short');
+                break;
+            }
+            case 'extraRef': {
+                const sh = proj.shorts.find(x => x.id === id);
+                if (!sh) return;
+                if (!Array.isArray(sh.imageUrls)) sh.imageUrls = [];
+                const idxAttr = e.detail.slotEl && e.detail.slotEl.getAttribute('data-img-paste-idx');
+                const idx = idxAttr !== null && idxAttr !== undefined && idxAttr !== '' ? parseInt(idxAttr, 10) : -1;
+                if (Number.isInteger(idx) && idx >= 0 && idx < sh.imageUrls.length) {
+                    sh.imageUrls[idx] = url;
+                } else {
+                    sh.imageUrls.push(url);
+                }
+                await saveProject(proj);
+                showToast('已粘贴参考图链接', 'success');
+                renderDetailPanel(id, 'short');
+                break;
+            }
+            default:
+                return;
+        }
+    } catch (err) {
+        console.warn('[detail paste]', err);
+        showToast('粘贴失败: ' + (err && err.message || err), 'error');
+    }
+}
+
+function ensureDetailPanelImgPaste(panel) {
+    if (!panel || panel._imgPasteInstalled) return;
+    panel._imgPasteInstalled = true;
+    panel.addEventListener('imgslot:paste', handleDetailImgPaste);
+}
+
 function renderDetailPanel(nodeId, nodeType) {
     const proj = state.currentProject;
     const panel = $('detailPanel');
+    ensureDetailPanelImgPaste(panel);
 
     switch (nodeType) {
         case 'script-section': renderPlotSettingsDetail(panel, proj); break;
@@ -1646,7 +1744,7 @@ function renderCharacterDetail(panel, proj, id) {
                 <div id="charStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考图片 (锚点)</label>
-                    <div class="mt-1 flex items-center gap-3">
+                    <div class="mt-1 flex items-center gap-3" data-img-paste="character">
                         ${c.imageUrl
                             ? (isAssetRef
                                 ? `<div class="img-thumb${c.anchorVerified ? ' anchor-verified' : ''}" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;background:var(--bg-panel)"><span style="font-size:10px;color:var(--text-muted)">虚拟人像</span><span style="font-size:9px;color:var(--text-faint);max-width:56px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(assetRefId)}">${escapeHtml(assetRefId)}</span></div>`
@@ -1781,7 +1879,7 @@ function renderPropDetail(panel, proj, id) {
                 <div id="propStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考图片</label>
-                    <div class="mt-1 flex items-center gap-3">
+                    <div class="mt-1 flex items-center gap-3" data-img-paste="prop">
                         ${p.imageUrl ? `<img src="${escapeHtml(resolveUrl(p.imageUrl))}" class="img-thumb${p.anchorVerified ? ' anchor-verified' : ''}" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(p.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -1897,7 +1995,7 @@ function renderSceneDetail(panel, proj, id) {
                 <div id="sceneStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考图片</label>
-                    <div class="mt-1 flex items-center gap-3">
+                    <div class="mt-1 flex items-center gap-3" data-img-paste="scene">
                         ${s.imageUrl ? `<img src="${escapeHtml(resolveUrl(s.imageUrl))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(s.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -2084,8 +2182,8 @@ function renderShortDetail(panel, proj, id) {
                 </div>
                 <div style="${(sh.firstFrameUrl || sh.lastFrameUrl) ? 'opacity:0.4;pointer-events:none' : ''}">
                     <label class="text-xs" style="color:var(--text-muted)">额外参考图${(sh.firstFrameUrl || sh.lastFrameUrl) ? ' <span style="color:var(--text-faint);font-size:10px">(已设首尾帧，参考图不生效)</span>' : ''}</label>
-                    <div class="flex gap-2 mt-1 flex-wrap">
-                        ${(sh.imageUrls || []).map((u, i) => `<div style="position:relative;display:inline-block"><img src="${escapeHtml(resolveUrl(u))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(u))}';document.getElementById('imgPreview').classList.remove('hidden')"><button class="removeExtraRefBtn" data-idx="${i}" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#7f1d1d;color:#fca5a5;border:1px solid #ef4444;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;pointer-events:auto">✕</button></div>`).join('')}
+                    <div class="flex gap-2 mt-1 flex-wrap" data-img-paste="extraRef">
+                        ${(sh.imageUrls || []).map((u, i) => `<div style="position:relative;display:inline-block" data-img-paste="extraRef" data-img-paste-idx="${i}"><img src="${escapeHtml(resolveUrl(u))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(u))}';document.getElementById('imgPreview').classList.remove('hidden')"><button class="removeExtraRefBtn" data-idx="${i}" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#7f1d1d;color:#fca5a5;border:1px solid #ef4444;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;pointer-events:auto">✕</button></div>`).join('')}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
                             <input type="file" accept="image/*" class="hidden" id="shortImageInput">
@@ -2112,7 +2210,7 @@ function renderShortDetail(panel, proj, id) {
                     <div class="flex gap-3 mt-1 items-end">
                         <div>
                             <span class="text-xs" style="color:var(--text-faint)">首帧</span>
-                            <div class="flex gap-2 items-center mt-1">
+                            <div class="flex gap-2 items-center mt-1" data-img-paste="firstFrame">
                                 ${sh.firstFrameUrl ? `
                                     <img src="${escapeHtml(resolveUrl(sh.firstFrameUrl))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(sh.firstFrameUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">
                                     <button class="btn-danger" style="padding:2px 6px;font-size:11px;pointer-events:auto" id="removeFirstFrameBtn">✕</button>
@@ -2127,7 +2225,7 @@ function renderShortDetail(panel, proj, id) {
                         <span style="color:var(--text-faint);font-size:16px;padding-bottom:20px">→</span>
                         <div>
                             <span class="text-xs" style="color:var(--text-faint)">尾帧</span>
-                            <div class="flex gap-2 items-center mt-1">
+                            <div class="flex gap-2 items-center mt-1" data-img-paste="lastFrame">
                                 ${sh.lastFrameUrl ? `
                                     <img src="${escapeHtml(resolveUrl(sh.lastFrameUrl))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(sh.lastFrameUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">
                                     <button class="btn-danger" style="padding:2px 6px;font-size:11px;pointer-events:auto" id="removeLastFrameBtn">✕</button>
@@ -2182,7 +2280,7 @@ function renderShortDetail(panel, proj, id) {
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">📖 绘本插画 <span style="color:var(--text-faint)">(无视频时播放器显示此静帧)</span></label>
                     ${sh.picturebookUrl ? `
-                    <div class="flex gap-3 mt-1 items-start">
+                    <div class="flex gap-3 mt-1 items-start" data-img-paste="picturebook">
                         <img src="${escapeHtml(resolveUrl(sh.picturebookUrl))}" class="rounded-lg cursor-pointer" style="max-height:120px;max-width:200px;object-fit:contain;background:#000;border:1px solid var(--border-card)" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(sh.picturebookUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">
                         <div class="flex flex-col gap-1">
                             <button class="btn-secondary text-xs" id="genPicturebookBtn" ${sh.picturebookStatus === 'running' ? 'disabled' : ''}>
@@ -2191,7 +2289,7 @@ function renderShortDetail(panel, proj, id) {
                             <button class="btn-danger text-xs" id="removePicturebookBtn">✕ 移除</button>
                         </div>
                     </div>` : `
-                    <div class="flex gap-2 mt-1 items-center">
+                    <div class="flex gap-2 mt-1 items-center" data-img-paste="picturebook">
                         ${sh.picturebookStatus === 'running' ? `
                         <div class="flex items-center gap-2">
                             <div class="spinner"></div>

@@ -13,6 +13,8 @@ import { showImportProjectModal } from './import.js';
 import { showExportProjectModal } from './export.js';
 import { showStatsModal, attachStatsHover } from './stats.js';
 import { initBuiltinPresets } from './prompts.js';
+import { initHoverPreview } from './hoverPreview.js';
+import { initImageClipboard } from './imageClipboard.js';
 
 let workspaceViewerInstance = null;
 
@@ -353,6 +355,8 @@ async function init() {
 
     await refreshAuthUI();
     initHelp();
+    initHoverPreview();
+    initImageClipboard();
 
     // Mobile bottom bar
     $('mobileHamburger').onclick = () => toggleMobileSidebar();
