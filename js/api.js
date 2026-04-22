@@ -1099,7 +1099,7 @@ export function stopPolling(taskId) {
  * @param {Object} [options] - { width, height, provider, model, compressionRatio, images }
  * @returns {Promise<string|null>} Generated image URL
  */
-async function genImage(prompt, options = {}) {
+export async function genImage(prompt, options = {}) {
     const {
         width = 2048,
         height = 2048,

@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { state, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
-import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles } from './api.js';
+import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, genImage as genImageDirect } from './api.js';
 import { buildTree, renderTreeHTML, attachTreeEvents, isFolder, getCategoryFromType, getItemType } from './tree.js';
 import ClipEditor from './clipeditor.js';
 import Mp4ToWebp from './mp4ToWebp.js';
@@ -18,6 +18,7 @@ import { renderGeneration, onGenerationUpdate, onStartGeneration, tryGenerateNex
 import { renderPreview } from './preview.js';
 import PRESETS from './presets.js';
 import { saveStatsToProject, loadStatsFromProject } from './stats.js';
+import { showGenImageModal } from './genImage.js';
 
 let _clipEditorInstance = null;
 let _mp4ToWebpInstance = null;
@@ -1720,27 +1721,34 @@ function renderCharacterDetail(panel, proj, id) {
         await saveProject(proj);
         renderDetailPanel(id, 'character');
     };
-    $('aiGenCharImgBtn').onclick = async () => {
+    $('aiGenCharImgBtn').onclick = () => {
         const desc = $('detailDesc')?.value?.trim() || c.description;
         if (!desc) { showToast('请先填写角色外观描述', 'error'); return; }
-        const btn = $('aiGenCharImgBtn');
-        btn.disabled = true; btn.textContent = '⏳ 生成中...';
-        try {
-            preserveImageCandidate(c);
-            const url = await generateCharacterImage(desc, proj);
-            if (url) {
-                addImageCandidate(c, url);
+        showGenImageModal({
+            nodeType: 'character',
+            description: desc,
+            project: proj,
+            onSave: async (updatedDesc) => {
+                c.name = $('detailName')?.value?.trim() || c.name;
+                c.description = updatedDesc;
+                if ($('anchorVerifyCheck')) c.anchorVerified = $('anchorVerifyCheck').checked;
                 await saveProject(proj);
-                showToast('角色图片已生成', 'success');
-                renderDetailPanel(id, 'character');
-            } else {
-                showToast('图片生成未返回结果', 'error');
-            }
-        } catch (err) {
-            showToast(`生成失败: ${err.message}`, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🎨 AI生成'; }
-        }
+                renderTreePanel();
+                attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            },
+            onGenerate: async (prompt, { width, height }) => {
+                preserveImageCandidate(c);
+                const url = await genImageDirect(prompt, { width, height });
+                if (url) {
+                    addImageCandidate(c, url);
+                    await saveProject(proj);
+                    showToast('角色图片已生成', 'success');
+                    renderDetailPanel(id, 'character');
+                } else {
+                    showToast('图片生成未返回结果', 'error');
+                }
+            },
+        });
     };
     attachImageCandidateEvents(c, proj, id, 'character');
     attachBreadcrumbEvents(panel);
@@ -1819,27 +1827,34 @@ function renderPropDetail(panel, proj, id) {
         await saveProject(proj);
         renderDetailPanel(id, 'prop');
     };
-    $('aiGenPropImgBtn').onclick = async () => {
+    $('aiGenPropImgBtn').onclick = () => {
         const desc = $('detailDesc')?.value?.trim() || p.description;
         if (!desc) { showToast('请先填写道具外观描述', 'error'); return; }
-        const btn = $('aiGenPropImgBtn');
-        btn.disabled = true; btn.textContent = '⏳ 生成中...';
-        try {
-            preserveImageCandidate(p);
-            const url = await generatePropImage(desc, proj);
-            if (url) {
-                addImageCandidate(p, url);
+        showGenImageModal({
+            nodeType: 'prop',
+            description: desc,
+            project: proj,
+            onSave: async (updatedDesc) => {
+                p.name = $('detailName')?.value?.trim() || p.name;
+                p.description = updatedDesc;
+                if ($('anchorVerifyCheck')) p.anchorVerified = $('anchorVerifyCheck').checked;
                 await saveProject(proj);
-                showToast('道具图片已生成', 'success');
-                renderDetailPanel(id, 'prop');
-            } else {
-                showToast('图片生成未返回结果', 'error');
-            }
-        } catch (err) {
-            showToast(`生成失败: ${err.message}`, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🎨 AI生成'; }
-        }
+                renderTreePanel();
+                attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            },
+            onGenerate: async (prompt, { width, height }) => {
+                preserveImageCandidate(p);
+                const url = await genImageDirect(prompt, { width, height });
+                if (url) {
+                    addImageCandidate(p, url);
+                    await saveProject(proj);
+                    showToast('道具图片已生成', 'success');
+                    renderDetailPanel(id, 'prop');
+                } else {
+                    showToast('图片生成未返回结果', 'error');
+                }
+            },
+        });
     };
     attachImageCandidateEvents(p, proj, id, 'prop');
     attachBreadcrumbEvents(panel);
@@ -1926,27 +1941,33 @@ function renderSceneDetail(panel, proj, id) {
         await saveProject(proj);
         renderDetailPanel(id, 'scene');
     };
-    $('aiGenSceneImgBtn').onclick = async () => {
+    $('aiGenSceneImgBtn').onclick = () => {
         const desc = $('detailDesc')?.value?.trim() || s.description;
         if (!desc) { showToast('请先填写场景描述', 'error'); return; }
-        const btn = $('aiGenSceneImgBtn');
-        btn.disabled = true; btn.textContent = '⏳ 生成中...';
-        try {
-            preserveImageCandidate(s);
-            const url = await generateSceneImage(desc, proj);
-            if (url) {
-                addImageCandidate(s, url);
+        showGenImageModal({
+            nodeType: 'scene',
+            description: desc,
+            project: proj,
+            onSave: async (updatedDesc) => {
+                s.name = $('detailName')?.value?.trim() || s.name;
+                s.description = updatedDesc;
                 await saveProject(proj);
-                showToast('场景图片已生成', 'success');
-                renderDetailPanel(id, 'scene');
-            } else {
-                showToast('图片生成未返回结果', 'error');
-            }
-        } catch (err) {
-            showToast(`生成失败: ${err.message}`, 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🎨 AI生成'; }
-        }
+                renderTreePanel();
+                attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            },
+            onGenerate: async (prompt, { width, height }) => {
+                preserveImageCandidate(s);
+                const url = await genImageDirect(prompt, { width, height });
+                if (url) {
+                    addImageCandidate(s, url);
+                    await saveProject(proj);
+                    showToast('场景图片已生成', 'success');
+                    renderDetailPanel(id, 'scene');
+                } else {
+                    showToast('图片生成未返回结果', 'error');
+                }
+            },
+        });
     };
     attachImageCandidateEvents(s, proj, id, 'scene');
     attachBreadcrumbEvents(panel);
