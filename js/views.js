@@ -1,7 +1,7 @@
 // ============ View Renderers ============
 
 import { CONFIG } from './config.js';
-import { state, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded } from './state.js';
+import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
 import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, genImage as genImageDirect } from './api.js';
@@ -354,6 +354,27 @@ async function renderProjectList() {
         if (!state.token) { showToast('请先登录', 'error'); return; }
         showNewProjectModal();
     };
+
+    if (!state.token) {
+        const grid = $('projectGrid');
+        grid.innerHTML = `<div class="col-span-full flex flex-col items-center py-20">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <p class="mt-4 mb-6 text-sm" style="color:var(--text-muted)">登录后即可创建和管理影片项目</p>
+            <button id="bigLoginBtn" class="btn-primary" style="padding:14px 48px;font-size:16px;border-radius:12px">请先登录</button>
+        </div>`;
+        const tplGrid = $('templateGrid');
+        if (tplGrid) tplGrid.innerHTML = '';
+        $('bigLoginBtn').onclick = async () => {
+            try {
+                await sdk.showLoginWindow({ title: 'Keepwork 登录' });
+                if (state.token) {
+                    navigateTo('projectList');
+                    showToast('登录成功', 'success');
+                }
+            } catch (e) { console.error('Login error:', e); }
+        };
+        return;
+    }
 
     const summaries = await loadProjectList();
     state.projects = summaries;
