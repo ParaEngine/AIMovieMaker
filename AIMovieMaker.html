@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Movie Maker</title>
     <script src="https://cdn.keepwork.com/keepwork/cdn/tailwindcss@3.4.16.js"></script>
-    <script src="https://cdn.keepwork.com/sdk/keepworkSDK.iife.js?v=20260424a"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -328,6 +327,14 @@
 
         .upload-zone { border: 2px dashed var(--border-card); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--input-bg); color: var(--text-faint); font-size: 13px; }
         .upload-zone:hover { border-color: var(--accent); background: var(--bg-pill); }
+        .ref-video-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .ref-video-select-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
+        .ref-video-select { width: min(260px, 48vw); height: 32px; min-height: 32px; padding: 4px 28px 4px 10px; border-radius: 8px; font-size: 12px; line-height: 1.2; background: var(--input-bg); color: var(--text-secondary); border: 1px solid var(--border-card); }
+        .ref-video-select:focus { outline: none; border-color: var(--accent); color: var(--text-primary); }
+        .ref-video-hint { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; background: var(--bg-pill); color: var(--text-faint); font-size: 10px; white-space: nowrap; }
+        .ref-video-preview { max-height: 72px; max-width: 128px; border-radius: 8px; background: #000; }
+        .ref-video-upload { width: 92px !important; height: 44px !important; border-radius: 8px; gap: 2px; font-size: 10px; }
+        .ref-video-upload svg { width: 14px; height: 14px; }
 
         .img-preview-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
         .img-preview-overlay img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); object-fit: contain; }
@@ -658,7 +665,19 @@
             <span>更多</span>
         </button>
     </div>
+    <script type="module">
+        const sdkCdnUrl = 'https://cdn.keepwork.com/sdk/keepworkSDK.iife.js?v=20260424x';
+        const loadScript = src => new Promise((resolve, reject) => {
+            const script = Object.assign(document.createElement('script'), { src, onload: resolve, onerror: reject });
+            document.head.appendChild(script);
+        });
+        const loadSDK = () => window.location.hostname === '127.0.0.1'
+            ? import('/keepworkSDK/index.js').catch(() => loadScript(sdkCdnUrl))
+            : loadScript(sdkCdnUrl);
+        await loadSDK();
 
-    <script type="module" src="js/app.js"></script>
+        await import('./js/app.js');
+    </script>
+
 </body>
 </html>

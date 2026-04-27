@@ -145,6 +145,7 @@ export function normalizeProject(project) {
         videoPath: null,
         sourceVideoUrl: null,
         referenceVideoUrl: null,
+        referenceVideoSourceShortId: null,
         firstFrameUrl: null,
         lastFrameUrl: null,
         audioUrls: [],
@@ -183,6 +184,7 @@ export function normalizeProject(project) {
         videoPath: short?.videoPath || null,
         sourceVideoUrl: short?.sourceVideoUrl || null,
         referenceVideoUrl: short?.referenceVideoUrl || null,
+        referenceVideoSourceShortId: short?.referenceVideoSourceShortId || null,
         firstFrameUrl: short?.firstFrameUrl || null,
         lastFrameUrl: short?.lastFrameUrl || null,
         audioUrls: short?.audioUrls || [],
@@ -235,7 +237,47 @@ export function normalizeProject(project) {
     project.subtitles = normalizeSubtitles(project.subtitles);
     project.isInteractive = project.isInteractive === true;
     project.plot = normalizePlot(project.plot);
+    syncAllReferenceVideoUrls(project);
     return project;
+}
+
+export function getShortReferenceVideoUrl(project, short) {
+    if (!project || !short) return short?.referenceVideoUrl || null;
+    if (!short.referenceVideoSourceShortId) return short.referenceVideoUrl || null;
+    if (short.referenceVideoSourceShortId === short.id) return null;
+    const sourceShort = (project.shorts || []).find(s => s.id === short.referenceVideoSourceShortId);
+    return sourceShort?.videoUrl || null;
+}
+
+export function syncShortReferenceVideoUrl(project, short) {
+    if (!project || !short || !short.referenceVideoSourceShortId) return false;
+    const nextUrl = getShortReferenceVideoUrl(project, short);
+    if ((short.referenceVideoUrl || null) === (nextUrl || null)) return false;
+    short.referenceVideoUrl = nextUrl || null;
+    return true;
+}
+
+export function syncReferenceVideoDependents(project, sourceShortId) {
+    if (!project || !sourceShortId) return false;
+    let changed = false;
+    (project.shorts || []).forEach(short => {
+        if (short.referenceVideoSourceShortId === sourceShortId) {
+            changed = syncShortReferenceVideoUrl(project, short) || changed;
+        }
+    });
+    return changed;
+}
+
+export function syncAllReferenceVideoUrls(project) {
+    if (!project) return false;
+    let changed = false;
+    (project.shorts || []).forEach(short => {
+        if (short.referenceVideoSourceShortId === short.id) {
+            short.referenceVideoSourceShortId = null;
+        }
+        changed = syncShortReferenceVideoUrl(project, short) || changed;
+    });
+    return changed;
 }
 
 // ============ Interactive Plot Graph ============
@@ -630,7 +672,7 @@ export function linkBreakdown(project, breakdown) {
             sceneId: scene?.id || null, characterIds: charIds, propIds,
             prompt: s.prompt, duration: s.duration || 5,
             ratio: project.settings.ratio, imageUrls: [], imagePaths: [],
-            taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null,
+            taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null,
             firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false,
             error: null,
             shotType: s.shotType || null, cameraMovement: s.cameraMovement || null,

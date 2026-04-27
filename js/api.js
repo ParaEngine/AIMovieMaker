@@ -2,7 +2,7 @@
 
 import { CONFIG, getLanguageInstruction, getStylePreset, getEnvPreset, getRacePreset } from './config.js';
 import { getPrompt, ensurePresetLoaded } from './prompts.js';
-import { state, sdk } from './state.js';
+import { state, sdk, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { showToast } from './utils.js';
 import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, updateTaskLogEntry, saveAssetToLocal } from './storage.js';
 import { recordLLMCall, recordImageCall, recordVideoCall } from './stats.js';
@@ -809,6 +809,7 @@ export async function submitGenVideo(short, project) {
     }
 
     // Build videos array (video-to-video reference)
+    syncShortReferenceVideoUrl(project, short);
     const videos = [];
     if (short.referenceVideoUrl) {
         videos.push({ url: short.referenceVideoUrl, role: 'reference_video' });
@@ -987,6 +988,7 @@ export function startPolling(taskId, projectId, onUpdate) {
                         pShort.videoUrl = data.videoUrl;
                         pShort.sourceVideoUrl = data.videoUrl;
                         pShort.status = 'succeeded';
+                        syncReferenceVideoDependents(proj, pShort.id);
                     }
                     // Record usage
                     if (proj.videoGenUsage) {
@@ -1039,6 +1041,7 @@ export function startPolling(taskId, projectId, onUpdate) {
             if (data.status === 'succeeded') {
                 short.videoUrl = data.videoUrl;
                 short.sourceVideoUrl = data.videoUrl;
+                syncReferenceVideoDependents(proj, short.id);
                 // Save as candidate
                 if (!short.videoCandidates) short.videoCandidates = [];
                 if (!short.videoCandidates.some(c => c.url === data.videoUrl)) {

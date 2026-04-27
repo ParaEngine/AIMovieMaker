@@ -1,7 +1,7 @@
 // ============ View Renderers ============
 
 import { CONFIG } from './config.js';
-import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded } from './state.js';
+import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
 import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, genImage as genImageDirect } from './api.js';
@@ -89,6 +89,18 @@ function initPresetCombos() {
     // close on outside click
     const closeAll = () => document.querySelectorAll('.preset-dropdown.open').forEach(d => d.classList.remove('open'));
     document.addEventListener('click', closeAll, { once: false });
+}
+
+function referenceVideoSourceOptionsHTML(proj, currentShort) {
+    return (proj.shorts || [])
+        .filter(short => short.id !== currentShort.id)
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(short => {
+            const selected = currentShort.referenceVideoSourceShortId === short.id ? 'selected' : '';
+            const status = short.videoUrl ? '' : ' · 待生成';
+            const prompt = truncate(short.prompt || '', 16);
+            return `<option value="${escapeHtml(short.id)}" ${selected}>#${short.order || '?'} ${escapeHtml(prompt || '未命名')}${status}</option>`;
+        }).join('');
 }
 
 export function renderClipEditorView() {
@@ -415,7 +427,7 @@ async function renderProjectList() {
             cloned.shorts = (srcProj.shorts || []).map((s, i) => ({
                 ...s,
                 taskId: null, status: 'pending', videoUrl: null, videoPath: null,
-                sourceVideoUrl: null, referenceVideoUrl: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, order: i + 1,
+                sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, order: i + 1,
             }));
             await saveProject(cloned);
             showToast('项目已克隆', 'success');
@@ -487,9 +499,7 @@ async function renderProjectList() {
                     showToast('已停止所有生成任务', 'info');
                 }
             }
-            if (proj.status === 'generating') navigateTo('breakdown');
-            else if (proj.status === 'completed') navigateTo('preview');
-            else navigateTo('breakdown');
+            navigateTo('breakdown');
         }
     });
 
@@ -567,6 +577,7 @@ async function loadMovieTemplates() {
                     videoPath: null,
                     sourceVideoUrl: null,
                     referenceVideoUrl: null,
+                    referenceVideoSourceShortId: null,
                     firstFrameUrl: null,
                     lastFrameUrl: null,
                     audioUrls: [],
@@ -1114,6 +1125,7 @@ export function renderBreakdown() {
                     s.sourceVideoUrl = lastCandidate.sourceUrl || lastCandidate.url;
                     s.status = 'succeeded';
                     s.error = null;
+                    syncReferenceVideoDependents(proj, s.id);
                 } else {
                     s.status = 'failed';
                     s.error = '已手动停止';
@@ -1282,7 +1294,7 @@ function createNewItem(proj, category, folderId) {
         return { id: crypto.randomUUID(), name: '新场景', description: '', imageUrl: null, imagePath: null, lighting: null, timeOfDay: null, weather: null, mood: null, folderId: folderId || null, imageCandidates: [] };
     } else if (category === 'shorts') {
         const order = proj.shorts.length + 1;
-        return { id: crypto.randomUUID(), order, folderId: folderId || null, sceneId: null, characterIds: [], prompt: '', duration: proj.settings.defaultDuration, ratio: proj.settings.ratio, imageUrls: [], imagePaths: [], taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, shotType: null, cameraMovement: null, cameraAngle: null, lighting: null, emotion: null, stableVariables: null, enhanced: false, picturebook: false, picturebookUrl: null, picturebookPath: null, picturebookStatus: null, picturebookTaskId: null, picturebookError: null, videoCandidates: [] };
+        return { id: crypto.randomUUID(), order, folderId: folderId || null, sceneId: null, characterIds: [], prompt: '', duration: proj.settings.defaultDuration, ratio: proj.settings.ratio, imageUrls: [], imagePaths: [], taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, shotType: null, cameraMovement: null, cameraAngle: null, lighting: null, emotion: null, stableVariables: null, enhanced: false, picturebook: false, picturebookUrl: null, picturebookPath: null, picturebookStatus: null, picturebookTaskId: null, picturebookError: null, videoCandidates: [] };
     }
 }
 
@@ -1410,7 +1422,7 @@ function cloneItem(itemId, category) {
     const cloned = { ...JSON.parse(JSON.stringify(item)), id: crypto.randomUUID() };
     if (category === 'shorts') {
         cloned.order = list.length + 1;
-        cloned.taskId = null; cloned.status = 'pending'; cloned.videoUrl = null; cloned.videoPath = null; cloned.sourceVideoUrl = null; cloned.referenceVideoUrl = null; cloned.error = null;
+        cloned.taskId = null; cloned.status = 'pending'; cloned.videoUrl = null; cloned.videoPath = null; cloned.sourceVideoUrl = null; cloned.referenceVideoUrl = null; cloned.referenceVideoSourceShortId = null; cloned.error = null;
     }
     const idx = list.indexOf(item);
     list.splice(idx + 1, 0, cloned);
@@ -1493,7 +1505,7 @@ function cloneFolderGeneric(folderId, category) {
     const clonedItems = folderItems.map(item => {
         const cloned = { ...JSON.parse(JSON.stringify(item)), id: crypto.randomUUID(), folderId: newFolderId };
         if (category === 'shorts') {
-            cloned.taskId = null; cloned.status = 'pending'; cloned.videoUrl = null; cloned.videoPath = null; cloned.sourceVideoUrl = null; cloned.referenceVideoUrl = null; cloned.error = null;
+            cloned.taskId = null; cloned.status = 'pending'; cloned.videoUrl = null; cloned.videoPath = null; cloned.sourceVideoUrl = null; cloned.referenceVideoUrl = null; cloned.referenceVideoSourceShortId = null; cloned.error = null;
         }
         return cloned;
     });
@@ -2108,6 +2120,7 @@ function renderSceneDetail(panel, proj, id) {
 function renderShortDetail(panel, proj, id) {
     const sh = proj.shorts.find(x => x.id === id);
     if (!sh) return;
+    syncShortReferenceVideoUrl(proj, sh);
     const shFolder = sh.folderId && (proj.folders || []).find(f => f.id === sh.folderId) || null;
     const scene = proj.scenes.find(sc => sc.id === sh.sceneId);
     const needsDetail = !sh.prompt || sh.prompt.length < 80;
@@ -2213,17 +2226,24 @@ function renderShortDetail(panel, proj, id) {
                 </div>
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考视频 (视频到视频)</label>
-                    <div class="flex gap-2 mt-1 items-center">
+                    <div class="ref-video-row mt-1">
                         ${sh.referenceVideoUrl ? `
-                            <video src="${escapeHtml(resolveUrl(sh.referenceVideoUrl))}" controls class="rounded-lg" style="max-height:100px;max-width:160px" onerror="this.onerror=null;this.removeAttribute('src');this.outerHTML='<span class=\\'text-xs\\' style=\\'color:#fca5a5\\'>视频加载失败</span>'"></video>
+                            <video src="${escapeHtml(resolveUrl(sh.referenceVideoUrl))}" controls class="ref-video-preview" onerror="this.onerror=null;this.removeAttribute('src');this.outerHTML='<span class=\\'text-xs\\' style=\\'color:#fca5a5\\'>视频加载失败</span>'"></video>
                             <button class="btn-danger" id="removeRefVideoBtn" title="移除参考视频">✕</button>
                         ` : `
-                            <label class="upload-zone" style="width:120px;height:60px;flex-shrink:0;cursor:pointer;gap:4px">
+                            <label class="upload-zone ref-video-upload" style="flex-shrink:0;cursor:pointer">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                                <span style="font-size:11px">上传视频</span>
+                                <span>上传</span>
                                 <input type="file" accept="video/mp4,video/quicktime,video/mov,.mp4,.mov" class="hidden" id="shortVideoInput">
                             </label>
                         `}
+                        <div class="ref-video-select-wrap">
+                            <select id="referenceVideoSourceSelect" class="ref-video-select">
+                                <option value="">不引用分镜视频</option>
+                                ${referenceVideoSourceOptionsHTML(proj, sh)}
+                            </select>
+                            <span class="ref-video-hint">${sh.referenceVideoSourceShortId ? '自动同步' : '可引用其它分镜'}</span>
+                        </div>
                     </div>
                 </div>
                 <div style="${hasExtraRefs ? 'opacity:0.4;pointer-events:none' : ''}">
@@ -2542,6 +2562,24 @@ function renderShortDetail(panel, proj, id) {
         }
     };
     // Reference video upload (video-to-video)
+    const referenceVideoSourceSelect = $('referenceVideoSourceSelect');
+    if (referenceVideoSourceSelect) {
+        referenceVideoSourceSelect.onchange = async () => {
+            sh.referenceVideoSourceShortId = referenceVideoSourceSelect.value || null;
+            if (sh.referenceVideoSourceShortId) {
+                syncShortReferenceVideoUrl(proj, sh);
+                const sourceShort = proj.shorts.find(s => s.id === sh.referenceVideoSourceShortId);
+                showToast(sourceShort?.videoUrl ? '已引用分镜视频' : '已引用分镜，源视频生成后会自动更新', 'success');
+            } else if (!sh.referenceVideoUrl) {
+                sh.referenceVideoUrl = null;
+                showToast('已取消分镜引用', 'info');
+            } else {
+                showToast('已取消自动引用，当前参考视频 URL 保留', 'info');
+            }
+            await saveProject(proj);
+            renderDetailPanel(id, 'short');
+        };
+    }
     const shortVideoInput = $('shortVideoInput');
     if (shortVideoInput) {
         shortVideoInput.onchange = async (e) => {
@@ -2551,6 +2589,7 @@ function renderShortDetail(panel, proj, id) {
             const url = await uploadTempVideo(file);
             if (url) {
                 sh.referenceVideoUrl = url;
+                sh.referenceVideoSourceShortId = null;
                 await saveProject(proj);
                 showToast('参考视频上传成功', 'success');
                 renderDetailPanel(id, 'short');
@@ -2561,6 +2600,7 @@ function renderShortDetail(panel, proj, id) {
     if (removeRefVideoBtn) {
         removeRefVideoBtn.onclick = async () => {
             sh.referenceVideoUrl = null;
+            sh.referenceVideoSourceShortId = null;
             await saveProject(proj);
             renderDetailPanel(id, 'short');
             showToast('已移除参考视频', 'info');
@@ -2808,7 +2848,7 @@ function renderGroupDetail(panel, groupName, count, unit, nodeId, nodeType) {
             state.selectedNodeId = s.id; state.selectedNodeType = 'scene';
         } else if (nodeType === 'shorts-group') {
             const order = proj.shorts.length + 1;
-            const s = { id: crypto.randomUUID(), order, folderId: null, sceneId: null, characterIds: [], prompt: '', duration: proj.settings.defaultDuration, ratio: proj.settings.ratio, imageUrls: [], imagePaths: [], taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, shotType: null, cameraMovement: null, cameraAngle: null, lighting: null, emotion: null, stableVariables: null, enhanced: false, picturebook: false, picturebookUrl: null, picturebookPath: null, picturebookStatus: null, picturebookTaskId: null, picturebookError: null, videoCandidates: [] };
+            const s = { id: crypto.randomUUID(), order, folderId: null, sceneId: null, characterIds: [], prompt: '', duration: proj.settings.defaultDuration, ratio: proj.settings.ratio, imageUrls: [], imagePaths: [], taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, shotType: null, cameraMovement: null, cameraAngle: null, lighting: null, emotion: null, stableVariables: null, enhanced: false, picturebook: false, picturebookUrl: null, picturebookPath: null, picturebookStatus: null, picturebookTaskId: null, picturebookError: null, videoCandidates: [] };
             proj.shorts.push(s);
             state.selectedNodeId = s.id; state.selectedNodeType = 'short';
         }
@@ -3089,7 +3129,7 @@ function applyRegenResult(nodeType, project, nodeId, result) {
                         sceneId: scene?.id || null, characterIds: charIds, propIds,
                         prompt: s.prompt, duration: s.duration || 5,
                         ratio: project.settings.ratio, imageUrls: [], imagePaths: [],
-                        taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, videoCandidates: [],
+                        taskId: null, status: 'pending', videoUrl: null, videoPath: null, sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null, audioUrls: [], modelOverride: null, generateAudioOverride: null, watermark: false, error: null, videoCandidates: [],
                         shotType: s.shotType || null, cameraMovement: s.cameraMovement || null,
                         cameraAngle: s.cameraAngle || null, lighting: s.lighting || null,
                         emotion: s.emotion || null, stableVariables: s.stableVariables || null,
@@ -3131,6 +3171,7 @@ function addVideoCandidate(short, videoUrl, videoPath) {
     short.videoUrl = videoUrl;
     short.videoPath = videoPath || null;
     short.sourceVideoUrl = videoUrl;
+    syncReferenceVideoDependents(state.currentProject, short.id);
 }
 
 /** Select a candidate as the active video */
@@ -3142,6 +3183,7 @@ function selectVideoCandidate(short, candidateUrl) {
     short.sourceVideoUrl = candidate.sourceUrl || candidate.url;
     short.status = 'succeeded';
     short.error = null;
+    syncReferenceVideoDependents(state.currentProject, short.id);
 }
 
 /** Delete a video candidate and move it to trash */
@@ -3167,6 +3209,7 @@ function deleteVideoCandidate(proj, short, candidateUrl) {
             short.videoUrl = null; short.videoPath = null; short.sourceVideoUrl = null;
             short.status = 'pending';
         }
+        syncReferenceVideoDependents(proj, short.id);
     }
 }
 
@@ -3431,6 +3474,7 @@ function renderQueueDropdown() {
                     sh.sourceVideoUrl = lastCandidate.sourceUrl || lastCandidate.url;
                     sh.status = 'succeeded';
                     sh.error = null;
+                    syncReferenceVideoDependents(proj, sh.id);
                 } else {
                     sh.status = 'failed';
                     sh.error = '已从队列移除';
@@ -3457,6 +3501,7 @@ function renderQueueDropdown() {
                         sh.sourceVideoUrl = lastCandidate.sourceUrl || lastCandidate.url;
                         sh.status = 'succeeded';
                         sh.error = null;
+                        syncReferenceVideoDependents(proj, sh.id);
                     } else {
                         sh.status = 'failed';
                         sh.error = '已从队列移除';

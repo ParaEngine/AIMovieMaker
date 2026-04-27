@@ -1,7 +1,7 @@
 // ============ Storage (personalPageStore workspace files) ============
 
 import { CONFIG } from './config.js';
-import { sdk, state, normalizeProject } from './state.js';
+import { sdk, state, normalizeProject, syncAllReferenceVideoUrls } from './state.js';
 import { saveStatsToProject } from './stats.js';
 import { localBlobCache } from './utils.js';
 
@@ -72,7 +72,7 @@ function buildProjectSummary(project) {
 const SHORT_DEFAULTS = {
     propIds: [], characterIds: [], imageUrls: [], imagePaths: [], audioUrls: [], videoCandidates: [], parallelTasks: [], imageCandidates: [],
     taskId: null, status: 'pending', videoUrl: null, videoPath: null,
-    sourceVideoUrl: null, referenceVideoUrl: null, firstFrameUrl: null, lastFrameUrl: null,
+    sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null,
     modelOverride: null, generateAudioOverride: null, watermark: false, error: null,
     shotType: null, cameraMovement: null, cameraAngle: null, lighting: null, emotion: null,
     stableVariables: null, enhanced: false, folderId: null,
@@ -358,6 +358,7 @@ export function canRedo() { return _redoStack.length > 0; }
 
 export async function saveProject(project) {
     if (!sdk.token || !sdk.personalPageStore) return;
+    syncAllReferenceVideoUrls(project);
     _pushUndoSnapshot(project);
     saveStatsToProject(project);
     const previousFileName = project.projectFileName || null;
@@ -375,6 +376,7 @@ export async function saveProject(project) {
 /** Persist project without affecting undo/redo stacks (used after undo/redo restore). */
 export async function saveProjectSilent(project) {
     if (!sdk.token || !sdk.personalPageStore) return;
+    syncAllReferenceVideoUrls(project);
     const previousFileName = project.projectFileName || null;
     project.updatedAt = Date.now();
     getProjectWorkspace(project);
