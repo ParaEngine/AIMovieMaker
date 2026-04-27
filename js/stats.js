@@ -13,6 +13,24 @@ function estimateTokens(text) {
     return Math.ceil(cjk / 1.5 + rest / 4);
 }
 
+function readTokenValue(source, keys) {
+    if (!source || typeof source !== 'object') return 0;
+    for (const key of keys) {
+        const value = source[key];
+        if (Number.isFinite(value)) return value;
+        if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+    }
+    return 0;
+}
+
+function normalizeTokenUsage(usage = {}) {
+    const source = usage?.usage && typeof usage.usage === 'object' ? usage.usage : usage;
+    const promptTokens = readTokenValue(source, ['prompt_tokens', 'promptTokens', 'input_tokens', 'inputTokens']);
+    const completionTokens = readTokenValue(source, ['completion_tokens', 'completionTokens', 'output_tokens', 'outputTokens']);
+    const totalTokens = readTokenValue(source, ['total_tokens', 'totalTokens', 'total']) || promptTokens + completionTokens;
+    return { promptTokens, completionTokens, totalTokens };
+}
+
 // ---- In-memory call log (session-scoped, persisted to project) ----
 
 const _callLog = [];
@@ -33,13 +51,14 @@ const _callLog = [];
 export function recordCall(entry) {
     const record = {
         id: crypto.randomUUID(),
+        taskId: entry.taskId || null,
         timestamp: new Date().toISOString(),
         type: entry.type || 'llm',
         label: entry.label || '',
         model: entry.model || '',
-        promptTokens: entry.promptTokens || 0,
-        completionTokens: entry.completionTokens || 0,
-        totalTokens: entry.totalTokens || (entry.promptTokens || 0) + (entry.completionTokens || 0),
+        promptTokens: entry.promptTokens ?? 0,
+        completionTokens: entry.completionTokens ?? 0,
+        totalTokens: entry.totalTokens ?? ((entry.promptTokens || 0) + (entry.completionTokens || 0)),
         success: entry.success !== false,
         error: entry.error || null,
         durationMs: entry.durationMs || 0,
@@ -72,18 +91,38 @@ export function recordImageCall({ label, model, success, error, durationMs }) {
     return recordCall({ type: 'image', label, model: model || 'jimeng', success, error, durationMs });
 }
 
-export function recordVideoCall({ label, model, duration, success, error, durationMs }) {
+export function recordVideoCall({ label, model, taskId, usage, promptTokens, completionTokens, totalTokens, duration, success, error, durationMs }) {
+    const normalized = normalizeTokenUsage(usage);
     return recordCall({
         type: 'video',
         label,
         model: model || '',
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
+        taskId,
+        promptTokens: promptTokens ?? normalized.promptTokens,
+        completionTokens: completionTokens ?? normalized.completionTokens,
+        totalTokens: totalTokens ?? normalized.totalTokens,
         success,
         error,
         durationMs,
     });
+}
+
+export function updateVideoCallUsage(taskId, { usage, promptTokens, completionTokens, totalTokens, success, error, durationMs } = {}) {
+    if (!taskId) return null;
+    const record = [..._callLog].reverse().find(c => c.type === 'video' && c.taskId === taskId);
+    if (!record) return null;
+    const normalized = normalizeTokenUsage(usage);
+    const nextPromptTokens = promptTokens ?? normalized.promptTokens;
+    const nextCompletionTokens = completionTokens ?? normalized.completionTokens;
+    const nextTotalTokens = totalTokens ?? normalized.totalTokens;
+    if (nextPromptTokens > 0) record.promptTokens = nextPromptTokens;
+    if (nextCompletionTokens > 0) record.completionTokens = nextCompletionTokens;
+    if (nextTotalTokens > 0) record.totalTokens = nextTotalTokens;
+    if (success !== undefined) record.success = success !== false;
+    if (error !== undefined) record.error = error || null;
+    if (durationMs !== undefined) record.durationMs = durationMs || record.durationMs;
+    _refreshStatsPanel();
+    return record;
 }
 
 export function getCallLog() { return _callLog; }
@@ -257,13 +296,17 @@ function showStatsDetail() {
         const statusStyle = c.success ? 'color:#6ee7b7' : 'color:#fca5a5';
         const typeIcon = { llm: '🤖', image: '🎨', video: '🎬' }[c.type] || '❓';
         const time = new Date(c.timestamp).toLocaleTimeString();
+        const hasPromptTokens = c.promptTokens > 0;
+        const hasCompletionTokens = c.completionTokens > 0;
+        const hasTotalTokens = c.totalTokens > 0;
+        const tokenPrefix = c.type === 'llm' ? '~' : '';
         return `<tr style="border-bottom:1px solid var(--border-secondary)">
             <td class="px-2 py-1.5">${typeIcon}</td>
             <td class="px-2 py-1.5">${escapeHtml(c.label)}</td>
             <td class="px-2 py-1.5">${escapeHtml(c.model || '-')}</td>
-            <td class="px-2 py-1.5 text-right">${c.type === 'llm' ? '~' + formatNumber(c.promptTokens) : '-'}</td>
-            <td class="px-2 py-1.5 text-right">${c.type === 'llm' ? '~' + formatNumber(c.completionTokens) : '-'}</td>
-            <td class="px-2 py-1.5 text-right font-semibold">${c.type === 'llm' ? '~' + formatNumber(c.totalTokens) : '-'}</td>
+            <td class="px-2 py-1.5 text-right">${hasPromptTokens ? tokenPrefix + formatNumber(c.promptTokens) : '-'}</td>
+            <td class="px-2 py-1.5 text-right">${hasCompletionTokens ? tokenPrefix + formatNumber(c.completionTokens) : '-'}</td>
+            <td class="px-2 py-1.5 text-right font-semibold">${hasTotalTokens ? tokenPrefix + formatNumber(c.totalTokens) : '-'}</td>
             <td class="px-2 py-1.5 text-center" style="${statusStyle}">${c.success ? '✓' : '✗'}</td>
             <td class="px-2 py-1.5 text-right">${c.durationMs ? (c.durationMs / 1000).toFixed(1) + 's' : '-'}</td>
             <td class="px-2 py-1.5">${time}</td>
@@ -337,7 +380,7 @@ function showStatsDetail() {
 }
 
 // re-export estimateTokens for use in api.js
-export { estimateTokens };
+export { estimateTokens, normalizeTokenUsage };
 
 /** Show stats modal — callable from the icon sidebar */
 export function showStatsModal() {

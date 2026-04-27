@@ -5,7 +5,7 @@ import { getPrompt, ensurePresetLoaded } from './prompts.js';
 import { state, sdk, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { showToast } from './utils.js';
 import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, updateTaskLogEntry, saveAssetToLocal } from './storage.js';
-import { recordLLMCall, recordImageCall, recordVideoCall } from './stats.js';
+import { recordLLMCall, recordImageCall, recordVideoCall, updateVideoCallUsage } from './stats.js';
 import { getGlobalPromptPreset } from './global_settings.js';
 
 /** Resolve prompt preset: project-level > global setting */
@@ -836,6 +836,7 @@ export async function submitGenVideo(short, project) {
     };
 
     let taskId;
+    const t0 = Date.now();
     try {
         taskId = await sdk.aiGenerators.genVideo(body.prompt, {
             model: body.model,
@@ -848,9 +849,9 @@ export async function submitGenVideo(short, project) {
             videos: body.videos,
             audios: body.audios,
         });
-        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: true });
+        recordVideoCall({ label: '生成视频', model: body.model, taskId, duration: body.duration, success: true, durationMs: Date.now() - t0 });
     } catch (err) {
-        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: false, error: err.message });
+        recordVideoCall({ label: '生成视频', model: body.model, duration: body.duration, success: false, error: err.message, durationMs: Date.now() - t0 });
         throw err;
     }
     // Record video gen task submission
@@ -1000,6 +1001,7 @@ export function startPolling(taskId, projectId, onUpdate) {
                             detail.usage = data.usage || detail.usage;
                             detail.actualDuration = data.duration || detail.duration;
                         }
+                        updateVideoCallUsage(taskId, { usage: data.usage, success: true });
                         proj.videoGenUsage.totalDuration += (data.duration || pTask.settings?.duration || 0);
                     }
                     stopPolling(taskId);
@@ -1021,6 +1023,7 @@ export function startPolling(taskId, projectId, onUpdate) {
                         proj.videoGenUsage.failedTasks++;
                         const detail = proj.videoGenUsage.details.find(d => d.taskId === taskId);
                         if (detail) { detail.status = 'failed'; detail.completedAt = new Date().toISOString(); detail.error = pTask.error; }
+                        updateVideoCallUsage(taskId, { success: false, error: pTask.error });
                     }
                     stopPolling(taskId);
                     updateTaskLogEntry(proj, taskId, { status: 'failed', error: pTask.error });
@@ -1062,6 +1065,7 @@ export function startPolling(taskId, projectId, onUpdate) {
                         detail.usage = data.usage || detail.usage;
                         detail.actualDuration = data.duration || detail.duration;
                     }
+                    updateVideoCallUsage(taskId, { usage: data.usage, success: true });
                     proj.videoGenUsage.totalDuration += (data.duration || short.duration || 0);
                 }
                 stopPolling(taskId);
@@ -1081,6 +1085,7 @@ export function startPolling(taskId, projectId, onUpdate) {
                         detail.completedAt = new Date().toISOString();
                         detail.error = short.error;
                     }
+                    updateVideoCallUsage(taskId, { success: false, error: short.error });
                 }
                 stopPolling(taskId);
                 updateTaskLogEntry(proj, taskId, { status: 'failed', error: short.error });
