@@ -58,7 +58,13 @@ export async function tryGenerateNext(proj) {
     for (const short of toStart) {
         try {
             short.status = 'running';
-            const taskId = await submitGenVideo(short, proj);
+            const promptOverride = state.videoPromptOverrides?.[short.id];
+            let taskId;
+            try {
+                taskId = await submitGenVideo(short, proj, { promptOverride });
+            } finally {
+                if (promptOverride) delete state.videoPromptOverrides[short.id];
+            }
             short.taskId = taskId;
             await saveProject(proj);
             // Persist task entry to log file immediately

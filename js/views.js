@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
-import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, genImage as genImageDirect } from './api.js';
+import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, buildGenVideoPrompt, genImage as genImageDirect } from './api.js';
 import { ensurePresetLoaded } from './prompts.js';
 import { getGlobalPromptPreset } from './global_settings.js';
 import { buildTree, renderTreeHTML, attachTreeEvents, isFolder, getCategoryFromType, getItemType } from './tree.js';
@@ -1688,10 +1688,38 @@ async function handleDetailImgPaste(e) {
     }
 }
 
+async function handleDetailVideoPaste(e) {
+    const proj = state.currentProject;
+    if (!proj) return;
+    const { url, key } = e.detail || {};
+    if (!url || !key) return;
+    const id = state.selectedNodeId;
+    try {
+        switch (key) {
+            case 'referenceVideo': {
+                const sh = proj.shorts.find(x => x.id === id);
+                if (!sh) return;
+                sh.referenceVideoUrl = url;
+                sh.referenceVideoSourceShortId = null;
+                await saveProject(proj);
+                showToast('已粘贴参考视频链接', 'success');
+                renderDetailPanel(id, 'short');
+                break;
+            }
+            default:
+                return;
+        }
+    } catch (err) {
+        console.warn('[detail video paste]', err);
+        showToast('粘贴失败: ' + (err && err.message || err), 'error');
+    }
+}
+
 function ensureDetailPanelImgPaste(panel) {
     if (!panel || panel._imgPasteInstalled) return;
     panel._imgPasteInstalled = true;
     panel.addEventListener('imgslot:paste', handleDetailImgPaste);
+    panel.addEventListener('videoslot:paste', handleDetailVideoPaste);
 }
 
 function renderDetailPanel(nodeId, nodeType) {
@@ -2228,10 +2256,10 @@ function renderShortDetail(panel, proj, id) {
                     <label class="text-xs" style="color:var(--text-muted)">参考视频 (视频到视频)</label>
                     <div class="ref-video-row mt-1">
                         ${sh.referenceVideoUrl ? `
-                            <video src="${escapeHtml(resolveUrl(sh.referenceVideoUrl))}" controls class="ref-video-preview" onerror="this.onerror=null;this.removeAttribute('src');this.outerHTML='<span class=\\'text-xs\\' style=\\'color:#fca5a5\\'>视频加载失败</span>'"></video>
+                            <video src="${escapeHtml(resolveUrl(sh.referenceVideoUrl))}" controls class="ref-video-preview" data-video-paste="referenceVideo" onerror="this.onerror=null;this.removeAttribute('src');this.outerHTML='<span class=\\'text-xs\\' style=\\'color:#fca5a5\\'>视频加载失败</span>'"></video>
                             <button class="btn-danger" id="removeRefVideoBtn" title="移除参考视频">✕</button>
                         ` : `
-                            <label class="upload-zone ref-video-upload" style="flex-shrink:0;cursor:pointer">
+                            <label class="upload-zone ref-video-upload" data-video-paste="referenceVideo" style="flex-shrink:0;cursor:pointer">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
                                 <span>上传</span>
                                 <input type="file" accept="video/mp4,video/quicktime,video/mov,.mp4,.mov" class="hidden" id="shortVideoInput">
@@ -2394,7 +2422,7 @@ function renderShortDetail(panel, proj, id) {
 
     initPresetCombos();
 
-    $('saveShortBtn').onclick = async () => {
+    function applyShortDetailFormValues() {
         sh.prompt = $('detailPrompt').value.trim();
         sh.dialogue = $('detailDialogue')?.value?.trim() || '';
         sh.narration = $('detailNarration')?.value?.trim() || '';
@@ -2414,13 +2442,21 @@ function renderShortDetail(panel, proj, id) {
         const genAudioVal = $('detailGenAudioOverride')?.value;
         sh.generateAudioOverride = genAudioVal === '' ? null : genAudioVal === 'true';
         sh.watermark = $('detailWatermark')?.checked || false;
+    }
+
+    $('saveShortBtn').onclick = async () => {
+        applyShortDetailFormValues();
         await saveProject(proj);
         showToast('已保存', 'success');
         renderTreePanel();
         attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
     };
     $('regenShortBtn').onclick = () => onTreeRegenerate(id, 'short');
-    $('genShotVideoBtn').onclick = () => onGenerateSingleShot(sh, proj);
+    $('genShotVideoBtn').onclick = async () => {
+        applyShortDetailFormValues();
+        await saveProject(proj);
+        showVideoPromptModal(sh, proj);
+    };
     if ($('genSelectedBtn')) $('genSelectedBtn').onclick = () => queueShotsForGeneration([...state.selectedNodeIds], proj);
     // Picturebook mode events
     if ($('genPicturebookBtn')) {
@@ -3518,7 +3554,7 @@ function renderQueueDropdown() {
     }
 }
 
-function queueShotsForGeneration(shortIds, proj) {
+function queueShotsForGeneration(shortIds, proj, promptOverrides = {}) {
     if (!state.token) { showToast('请先登录', 'error'); return; }
     const shorts = shortIds.map(id => proj.shorts.find(s => s.id === id)).filter(Boolean);
     const validShorts = shorts.filter(s => s.prompt?.trim());
@@ -3532,6 +3568,7 @@ function queueShotsForGeneration(shortIds, proj) {
         sh.status = 'pending';
         sh.taskId = null;
         sh.error = null;
+        if (promptOverrides[sh.id]?.trim()) state.videoPromptOverrides[sh.id] = promptOverrides[sh.id].trim();
         state.generationQueue.push(sh.id);
     }
 
@@ -3556,7 +3593,13 @@ async function tryGenerateFromQueue(proj) {
     for (const short of toStart) {
         try {
             short.status = 'running';
-            const taskId = await submitGenVideo(short, proj);
+            const promptOverride = state.videoPromptOverrides?.[short.id];
+            let taskId;
+            try {
+                taskId = await submitGenVideo(short, proj, { promptOverride });
+            } finally {
+                if (promptOverride) delete state.videoPromptOverrides[short.id];
+            }
             short.taskId = taskId;
             await saveProject(proj);
             startPolling(taskId, proj.id, async (p, updatedShort) => {
@@ -3604,16 +3647,43 @@ async function onQueueGenerationUpdate(proj, updatedShort) {
 }
 
 // ============ Generation View ============
-async function onGenerateSingleShot(short, proj) {
-    if (short.status === 'running') {
-        // Already running — submit as parallel task
-        await submitParallelTask(short, proj);
-        return;
-    }
-    queueShotsForGeneration([short.id], proj);
+function showVideoPromptModal(short, proj) {
+    if (!state.token) { showToast('请先登录', 'error'); return; }
+    if (!short.prompt?.trim()) { showToast('请先填写提示词', 'error'); return; }
+
+    const modal = $('editModal');
+    const finalPrompt = buildGenVideoPrompt(short, proj);
+    $('editModalTitle').textContent = short.status === 'running' ? '⚡ 并行生成视频 — 确认提示词' : '🎬 生成视频 — 确认提示词';
+    $('editModalBody').innerHTML = `
+        <div class="space-y-3">
+            <div>
+                <label class="text-xs" style="color:var(--text-muted)">最终视频提示词 <span style="color:var(--text-faint)">(可编辑)</span></label>
+                <textarea id="videoPromptInput" class="modal-input mt-1" style="min-height:220px;font-size:12px;line-height:1.5;font-family:monospace">${escapeHtml(finalPrompt)}</textarea>
+            </div>
+            <div class="flex gap-2">
+                <button class="btn-primary" id="confirmVideoPromptBtn">${short.status === 'running' ? '⚡ 并行生成' : '🎬 生成视频'}</button>
+                <button class="btn-secondary" id="cancelVideoPromptBtn">取消</button>
+            </div>
+        </div>`;
+    modal.classList.remove('hidden');
+    $('cancelVideoPromptBtn').onclick = () => modal.classList.add('hidden');
+    $('confirmVideoPromptBtn').onclick = async () => {
+        const promptOverride = $('videoPromptInput')?.value?.trim();
+        if (!promptOverride) { showToast('提示词不能为空', 'error'); return; }
+        modal.classList.add('hidden');
+        if (short.status === 'running') {
+            await submitParallelTask(short, proj, promptOverride);
+        } else {
+            queueShotsForGeneration([short.id], proj, { [short.id]: promptOverride });
+        }
+    };
 }
 
-async function submitParallelTask(short, proj) {
+async function onGenerateSingleShot(short, proj) {
+    showVideoPromptModal(short, proj);
+}
+
+async function submitParallelTask(short, proj, promptOverride) {
     if (!state.token) { showToast('请先登录', 'error'); return; }
     if (!short.prompt?.trim()) { showToast('请先填写提示词', 'error'); return; }
 
@@ -3626,7 +3696,7 @@ async function submitParallelTask(short, proj) {
     showToast(`正在提交并行生成任务...`, 'info');
 
     try {
-        const taskId = await submitGenVideo(short, proj);
+        const taskId = await submitGenVideo(short, proj, { promptOverride });
         if (!short.parallelTasks) short.parallelTasks = [];
         const task = {
             variantIndex: short.parallelTasks.length,

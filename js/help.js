@@ -42,7 +42,11 @@ function createHelpModal() {
                     <input type="checkbox" id="helpDontShowAgain" style="accent-color:var(--accent)">
                     下次不再显示
                 </label>
-                <button id="helpModalOk" class="btn-primary" style="padding:8px 24px">知道了</button>
+                <div class="flex items-center gap-3">
+                    <a href="https://api.keepwork.com/ts-storage/siteFiles/49009/raw#1777378244052《智慧家教》 Making.mp4" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="padding:8px 14px;text-decoration:none">新手视频</a>
+                    <a href="https://keepwork.com/maisi/maisi/webgames/tools/AIMovieMaker/docs/getting_started" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="padding:8px 14px;text-decoration:none">更多教学</a>
+                    <button id="helpModalOk" class="btn-primary" style="padding:8px 24px">知道了</button>
+                </div>
             </div>
         </div>`;
     document.body.appendChild(div);

@@ -6,6 +6,8 @@
 
 **支持平台：** 手机和 PC 浏览器均可使用
 
+![新手入门教学视频.mp4](https://api.keepwork.com/ts-storage/siteFiles/49009/raw#1777378244052《智慧家教》 Making.mp4)
+
 ---
 
 ## 目录

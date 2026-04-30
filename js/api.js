@@ -13,6 +13,29 @@ function getProjectPromptPreset(project) {
     return project?.settings?.promptPreset || getGlobalPromptPreset();
 }
 
+function resolveLocalVideoModelSettings(model) {
+    const fallbackModel = model || 'keepwork-video';
+    try {
+        return sdk?.localAPIKeySettings?.resolveModelSettings?.(fallbackModel) || { model: fallbackModel, apiKey: '' };
+    } catch (_) {
+        return { model: fallbackModel, apiKey: '' };
+    }
+}
+
+function buildStreamPreviewText(contentText, streamMeta) {
+    const reasoning = streamMeta?.reasoning_content || '';
+    if (!reasoning) return contentText || '';
+    const content = contentText || streamMeta?.result || '';
+    return content ? `思考过程:\n${reasoning}\n\n结果:\n${content}` : `思考过程:\n${reasoning}`;
+}
+
+function stripThinkingForJson(text) {
+    return String(text || '')
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+        .trim();
+}
+
 // ---- Image Upload ----
 function generateTempId() { return 'tmpImg_' + crypto.randomUUID().replace(/-/g, ''); }
 
@@ -230,19 +253,25 @@ export async function llmChatStream(systemPrompt, userMessage, onChunk, _callLab
 
     const prompt = `${systemPrompt}\n\n${userMessage}`;
     let fullResponse = '';
+    let fullStreamPreview = '';
     const t0 = Date.now();
 
     await new Promise((resolve, reject) => {
         session.send(prompt, {
-            onMessage: (partialText) => {
+            onMessage: (partialText, streamMeta) => {
                 if (partialText !== undefined && partialText !== null) {
                     fullResponse = partialText;
-                    if (onChunk) onChunk(fullResponse);
+                    fullStreamPreview = buildStreamPreviewText(fullResponse, streamMeta);
+                    if (onChunk) onChunk(fullStreamPreview);
+                } else if (streamMeta?.reasoning_content) {
+                    fullStreamPreview = buildStreamPreviewText(fullResponse, streamMeta);
+                    if (onChunk) onChunk(fullStreamPreview);
                 }
             },
-            onComplete: (finalText) => {
+            onComplete: (finalText, streamMeta) => {
                 fullResponse = finalText || fullResponse;
-                if (onChunk) onChunk(fullResponse);
+                fullStreamPreview = buildStreamPreviewText(fullResponse, streamMeta);
+                if (onChunk) onChunk(fullStreamPreview);
                 resolve();
             },
             onError: (error) => {
@@ -258,7 +287,7 @@ export async function llmChatStream(systemPrompt, userMessage, onChunk, _callLab
     recordLLMCall({ label: _callLabel || 'llmChatStream', model: modelName, promptText: prompt, responseText: fullResponse, success: true, durationMs: Date.now() - t0 });
 
     // Extract JSON from the response (may be wrapped in markdown code blocks)
-    let jsonStr = fullResponse.trim();
+    let jsonStr = stripThinkingForJson(fullResponse);
     const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) jsonStr = fenceMatch[1].trim();
 
@@ -704,7 +733,73 @@ export async function generateSubtitles(project, mode = 'narration', onChunk) {
 }
 
 // ---- Seedance Video ----
-export async function submitGenVideo(short, project) {
+export function getGenVideoReferenceImageLabels(short, project) {
+    if (short.firstFrameUrl || short.lastFrameUrl) return [];
+
+    const labels = [];
+    const scene = project.scenes.find(s => s.id === short.sceneId);
+    if (scene?.imageUrl) labels.push(scene?.name || '场景');
+
+    short.characterIds?.forEach(cid => {
+        const ch = project.characters.find(c => c.id === cid);
+        const imgUrl = (ch?.anchorVerified && ch?.anchorImageUrl) ? ch.anchorImageUrl : ch?.imageUrl;
+        if (imgUrl) labels.push(ch?.name || '角色');
+    });
+
+    (short.propIds || []).forEach(pid => {
+        const pr = project.props.find(p => p.id === pid);
+        const imgUrl = (pr?.anchorVerified && pr?.anchorImageUrl) ? pr.anchorImageUrl : pr?.imageUrl;
+        if (imgUrl) labels.push(pr?.name || '道具');
+    });
+
+    return labels;
+}
+
+export function buildGenVideoPrompt(short, project, options = {}) {
+    let prompt = options.basePrompt ?? short.prompt ?? '';
+    const imageLabels = options.imageLabels || getGenVideoReferenceImageLabels(short, project);
+
+    if (imageLabels.length > 0) {
+        const refLine = '参考图：' + imageLabels.map((label, i) => `${label}(图片${i + 1})`).join(', ');
+        if (!prompt.includes('参考图：')) {
+            prompt = prompt ? `${prompt}\n${refLine}` : refLine;
+        }
+    }
+
+    const metaParts = [];
+    if (short.shotType) metaParts.push(`shot type: ${short.shotType}`);
+    if (short.cameraMovement) metaParts.push(`camera movement: ${short.cameraMovement}`);
+    if (short.cameraAngle) metaParts.push(`camera angle: ${short.cameraAngle}`);
+    if (short.lighting) metaParts.push(`lighting: ${short.lighting}`);
+    if (short.emotion) metaParts.push(`emotion: ${short.emotion}`);
+
+    const lowerPrompt = prompt.toLowerCase();
+    const missingMeta = metaParts.filter(part => !lowerPrompt.includes(part.toLowerCase()));
+    if (missingMeta.length > 0) {
+        prompt = prompt ? `${prompt}\nCinematography: ${missingMeta.join(', ')}` : `Cinematography: ${missingMeta.join(', ')}`;
+    }
+
+    const preset = getStylePreset(project.settings?.stylePreset);
+    const styleSuffix = preset.value === 'custom'
+        ? (project.settings?.customStyleSuffix || '')
+        : (preset.promptSuffix || '');
+    if (styleSuffix && !prompt.toLowerCase().includes(styleSuffix.toLowerCase())) {
+        prompt = prompt ? `${prompt}\nStyle: ${styleSuffix}` : `Style: ${styleSuffix}`;
+    }
+
+    if (short.dialogue && short.dialogue.trim()) {
+        const line = short.dialogue.trim();
+        if (!prompt.includes(line)) {
+            prompt = prompt
+                ? `${prompt}\n角色台词 (Actor speaks aloud, lip-synced): "${line}"`
+                : `角色台词 (Actor speaks aloud, lip-synced): "${line}"`;
+        }
+    }
+
+    return prompt;
+}
+
+export async function submitGenVideo(short, project, options = {}) {
     const normalizeImageRefUrl = (rawUrl) => {
         const value = String(rawUrl || '').trim();
         if (!value) return '';
@@ -770,43 +865,7 @@ export async function submitGenVideo(short, project) {
         }
     }
 
-    // Build enhanced prompt with cinematography metadata
-    let prompt = short.prompt || '';
-
-    // Append reference image mapping so the model knows which image is which
-    if (imageLabels.length > 0) {
-        const refLine = '参考图：' + imageLabels.map((label, i) => `${label}(图片${i + 1})`).join(', ');
-        if (!prompt.includes('参考图：')) {
-            prompt = prompt ? `${prompt}\n${refLine}` : refLine;
-        }
-    }
-    if (short.enhanced && short.cameraMovement) {
-        const metaParts = [];
-        if (short.cameraMovement) metaParts.push(`camera ${short.cameraMovement}`);
-        if (short.lighting) metaParts.push(`lighting: ${short.lighting}`);
-        // Only append if not already present in prompt
-        const metaStr = metaParts.join(', ');
-        const preset = getStylePreset(project.settings?.stylePreset);
-        const styleSuffix = preset.value === 'custom'
-            ? (project.settings?.customStyleSuffix || '')
-            : (preset.promptSuffix || '');
-        if (metaStr && !prompt.includes(metaStr)) {
-            prompt = styleSuffix
-                ? `${prompt}, ${metaStr}, ${styleSuffix}`
-                : `${prompt}, ${metaStr}`;
-        }
-    }
-
-    // Append actor dialogue so the video model bakes spoken audio into the clip.
-    // The same text is mirrored to the dialogue subtitle track in the clip editor.
-    if (short.dialogue && short.dialogue.trim()) {
-        const line = short.dialogue.trim();
-        if (!prompt.includes(line)) {
-            prompt = prompt
-                ? `${prompt}\n角色台词 (Actor speaks aloud, lip-synced): "${line}"`
-                : `角色台词 (Actor speaks aloud, lip-synced): "${line}"`;
-        }
-    }
+    const prompt = options.promptOverride?.trim() || buildGenVideoPrompt(short, project, { imageLabels });
 
     // Build videos array (video-to-video reference)
     syncShortReferenceVideoUrl(project, short);
@@ -834,6 +893,9 @@ export async function submitGenVideo(short, project) {
         generateAudio: short.generateAudioOverride ?? project.settings.generateAudio,
         watermark: short.watermark || false,
     };
+    const localVideoSettings = resolveLocalVideoModelSettings(body.model);
+    if (localVideoSettings.model) body.model = localVideoSettings.model;
+    if (localVideoSettings.apiKey) body.apiKey = localVideoSettings.apiKey;
 
     let taskId;
     const t0 = Date.now();
@@ -848,6 +910,7 @@ export async function submitGenVideo(short, project) {
             images: body.images,
             videos: body.videos,
             audios: body.audios,
+            apiKey: body.apiKey,
         });
         recordVideoCall({ label: '生成视频', model: body.model, taskId, duration: body.duration, success: true, durationMs: Date.now() - t0 });
     } catch (err) {
@@ -961,7 +1024,11 @@ export function startPolling(taskId, projectId, onUpdate) {
             // Resolve model from usage details or short/project settings for apiKey passthrough
             const usageDetail = proj.videoGenUsage?.details?.find(d => d.taskId === taskId);
             const pollModel = usageDetail?.model || short?.modelOverride || proj.settings?.model;
-            const data = await sdk.aiGenerators.getVideoTaskStatus(taskId, { model: pollModel });
+            const localVideoSettings = resolveLocalVideoModelSettings(pollModel);
+            const data = await sdk.aiGenerators.getVideoTaskStatus(taskId, {
+                model: localVideoSettings.model || pollModel,
+                apiKey: localVideoSettings.apiKey || undefined,
+            });
             // Check if this taskId belongs to a parallel task
             const parallelMatch = !short ? findParallelTask(proj, taskId) : null;
             if (!short && !parallelMatch) { stopPolling(taskId); return; }

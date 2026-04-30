@@ -16,6 +16,7 @@ export const state = {
     selectedNodeType: null,
     selectedNodeIds: new Set(),   // multi-select: set of selected node IDs (shorts only)
     generationQueue: [],          // ordered list of short IDs queued for video generation
+    videoPromptOverrides: {},     // transient final prompt overrides keyed by short ID
     treeExpanded: {
         'script-section': true,
         'characters-group': false,

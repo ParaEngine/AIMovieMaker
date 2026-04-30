@@ -1,6 +1,6 @@
-// ============ Universal Image Slot Clipboard ============
-// Right-click any image to Copy its URL; right-click any editable image
-// slot (img OR empty upload zone) to Paste a URL from the clipboard.
+// ============ Universal Media Slot Clipboard ============
+// Right-click any image/video to Copy its URL; right-click any editable media
+// slot (img/video OR empty upload zone) to Paste a URL from the clipboard.
 //
 // Usage:
 //   initImageClipboard();
@@ -8,14 +8,17 @@
 // Making a slot editable (opt-in paste):
 //   <div data-img-paste="<slotKey>"> ... img or .upload-zone ... </div>
 //   or on the <img> / <label.upload-zone> directly.
+//   <div data-video-paste="<slotKey>"> ... video or .upload-zone ... </div>
+//   or on the <video> / <label.upload-zone> directly.
 //
 //   Then listen for a bubbling CustomEvent on any ancestor:
 //     parent.addEventListener('imgslot:paste', (e) => {
 //       const { url, key, slotEl } = e.detail;
 //       // apply url to your state, then re-render
 //     });
+//     parent.addEventListener('videoslot:paste', (e) => { ... });
 //
-// Readonly slots (default for all <img> without `data-img-paste`) only
+// Readonly slots (default for all <img>/<video> without paste attributes) only
 // get the Copy action.
 //
 // Opt out entirely: add `data-no-img-clipboard` on the img or any ancestor.
@@ -33,10 +36,10 @@ const SKIP_ANCESTOR_SELECTORS = [
 let menuEl = null;
 let installed = false;
 
-function getOriginalUrl(img) {
-    if (!img) return '';
+function getOriginalUrl(media) {
+    if (!media) return '';
     // If local-mode replaced a CDN url with a blob: URL, reverse-lookup
-    const src = img.currentSrc || img.src || '';
+    const src = media.currentSrc || media.src || media.getAttribute('src') || '';
     if (src.startsWith('blob:')) {
         for (const [cdn, blob] of localBlobCache.entries()) {
             if (blob === src) return cdn;
@@ -45,9 +48,14 @@ function getOriginalUrl(img) {
     return src;
 }
 
-function findPasteSlot(el) {
+function findImagePasteSlot(el) {
     if (!el || !(el instanceof Element)) return null;
     return el.closest('[data-img-paste]');
+}
+
+function findVideoPasteSlot(el) {
+    if (!el || !(el instanceof Element)) return null;
+    return el.closest('[data-video-paste]');
 }
 
 function isImageUrl(s) {
@@ -55,6 +63,13 @@ function isImageUrl(s) {
     const t = s.trim();
     if (!t) return false;
     return /^(https?:|asset:|data:image\/)/i.test(t);
+}
+
+function isVideoUrl(s) {
+    if (!s || typeof s !== 'string') return false;
+    const t = s.trim();
+    if (!t) return false;
+    return /^(https?:|asset:|data:video\/|blob:)/i.test(t);
 }
 
 async function readClipboardText() {
@@ -153,13 +168,14 @@ function showMenu(x, y, items) {
     menuEl.style.top = Math.max(4, top) + 'px';
 }
 
-async function doCopy(url) {
-    if (!url) { toast('无可复制的图片链接', 'error'); return; }
+async function doCopy(url, type = 'image') {
+    const label = type === 'video' ? '视频' : '图片';
+    if (!url) { toast(`无可复制的${label}链接`, 'error'); return; }
     const ok = await writeClipboardText(url);
-    toast(ok ? '已复制图片链接' : '复制失败', ok ? 'success' : 'error');
+    toast(ok ? `已复制${label}链接` : '复制失败', ok ? 'success' : 'error');
 }
 
-async function doPaste(slotEl) {
+async function doPasteImage(slotEl) {
     const text = (await readClipboardText() || '').trim();
     if (!text) { toast('剪贴板为空', 'error'); return; }
     if (!isImageUrl(text)) { toast('剪贴板内容不是图片链接', 'error'); return; }
@@ -179,16 +195,31 @@ async function doPaste(slotEl) {
     // update state + re-render.)
 }
 
+async function doPasteVideo(slotEl) {
+    const text = (await readClipboardText() || '').trim();
+    if (!text) { toast('剪贴板为空', 'error'); return; }
+    if (!isVideoUrl(text)) { toast('剪贴板内容不是视频链接', 'error'); return; }
+    const key = slotEl.getAttribute('data-video-paste') || '';
+    const evt = new CustomEvent('videoslot:paste', {
+        bubbles: true,
+        cancelable: true,
+        detail: { url: text, key, slotEl },
+    });
+    slotEl.dispatchEvent(evt);
+}
+
 function onContextMenu(e) {
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (t.closest(SKIP_ANCESTOR_SELECTORS)) return;
 
     const img = t.closest('img');
-    const slotEl = findPasteSlot(t);
+    const video = t.closest('video');
+    const imageSlotEl = findImagePasteSlot(t);
+    const videoSlotEl = findVideoPasteSlot(t);
 
     // Nothing actionable → let native context menu show.
-    if (!img && !slotEl) return;
+    if (!img && !video && !imageSlotEl && !videoSlotEl) return;
 
     e.preventDefault();
     const items = [];
@@ -198,13 +229,27 @@ function onContextMenu(e) {
         items.push({
             label: '📋 复制图片链接',
             disabled: !url || url.startsWith('blob:'),
-            onClick: () => doCopy(url),
+            onClick: () => doCopy(url, 'image'),
         });
     }
-    if (slotEl) {
+    if (video) {
+        const url = getOriginalUrl(video);
+        items.push({
+            label: '📋 复制视频链接',
+            disabled: !url || url.startsWith('blob:'),
+            onClick: () => doCopy(url, 'video'),
+        });
+    }
+    if (imageSlotEl) {
         items.push({
             label: img ? '📥 粘贴并替换图片' : '📥 粘贴图片链接',
-            onClick: () => doPaste(slotEl),
+            onClick: () => doPasteImage(imageSlotEl),
+        });
+    }
+    if (videoSlotEl) {
+        items.push({
+            label: video ? '📥 粘贴并替换视频' : '📥 粘贴视频链接',
+            onClick: () => doPasteVideo(videoSlotEl),
         });
     }
     if (items.length === 0) return;
