@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Batch Video Downloader (YouTube / Bilibili)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 24px; background: #0f1115; color: #e6e6e6;
+  }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  .sub { color: #9aa0a6; font-size: 13px; margin-bottom: 16px; }
+  .panel {
+    background: #171a21; border: 1px solid #262b36; border-radius: 10px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  textarea {
+    width: 100%; min-height: 160px; box-sizing: border-box;
+    background: #0b0d12; color: #e6e6e6; border: 1px solid #2a3040;
+    border-radius: 6px; padding: 10px; font: 13px/1.4 ui-monospace, Consolas, monospace;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button {
+    background: #3a7afe; color: white; border: 0; padding: 8px 16px;
+    border-radius: 6px; font-size: 14px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: #2a3040; color: #e6e6e6; }
+  .item {
+    border: 1px solid #262b36; border-radius: 8px; padding: 10px 12px;
+    margin-bottom: 8px; background: #11141b;
+  }
+  .item .url { font-size: 12px; color: #9aa0a6; word-break: break-all; }
+  .item .status { font-size: 13px; margin-top: 4px; }
+  .bar {
+    height: 6px; background: #20242e; border-radius: 3px; overflow: hidden;
+    margin-top: 6px;
+  }
+  .bar > span {
+    display: block; height: 100%; width: 0%; background: #3a7afe;
+    transition: width 0.2s linear;
+  }
+  .log {
+    font: 11px/1.4 ui-monospace, Consolas, monospace;
+    color: #8a909c; max-height: 80px; overflow: auto;
+    margin-top: 6px; white-space: pre-wrap; word-break: break-all;
+  }
+  .ok { color: #49d38a; } .err { color: #ff6b6b; }
+  a.dl { color: #6bb5ff; text-decoration: none; }
+  a.dl:hover { text-decoration: underline; }
+  .files li { margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+  .files input[type=checkbox] { margin: 0; cursor: pointer; }
+  code { background: #11141b; padding: 1px 5px; border-radius: 3px; }
+  button.danger { background: #c0392b; }
+  button.danger:hover { background: #e74c3c; }
+  .preview-mask {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.72);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; padding: 20px;
+  }
+  .preview-mask.show { display: flex; }
+  .preview-panel {
+    width: min(960px, 96vw); max-height: 92vh; overflow: hidden;
+    background: #0b0d12; border: 1px solid #2a3040; border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+  }
+  .preview-head {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border-bottom: 1px solid #2a3040;
+  }
+  .preview-title {
+    font-size: 13px; color: #cfd3dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .preview-close { margin-left: auto; }
+  .preview-video {
+    display: block; width: 100%; max-height: calc(92vh - 48px); background: #000;
+  }
+  .preview-link {
+    background: transparent; border: 0; color: #6bb5ff; cursor: pointer; padding: 0;
+    font: inherit; text-decoration: underline;
+  }
+  .preview-link:hover { color: #8dc5ff; }
+</style>
+</head>
+<body>
+  <h1>Batch Video Downloader</h1>
+  <div class="sub">
+    Paste YouTube / Bilibili URLs (one per line). Files are saved as MP4 to
+    <code>./downloads/</code> next to <code>download_videos_server.py</code>.
+    Requires <code>yt-dlp</code> (<code>pip install -U yt-dlp</code>) and <code>ffmpeg</code> on PATH.
+  </div>
+
+  <div id="req-banner" class="panel" style="display:none; border-color:#ff6b6b">
+    <strong style="color:#ff6b6b">Missing requirements:</strong>
+    <ul id="req-list" style="margin:6px 0 0;padding-left:20px;font-size:13px"></ul>
+  </div>
+
+  <div class="panel">
+    <textarea id="urls" placeholder="https://www.youtube.com/watch?v=...
+https://www.bilibili.com/video/BV..."></textarea>
+    <div class="row">
+      <button id="start">Start download</button>
+      <button id="refresh" class="secondary" type="button">Refresh file list</button>
+      <span id="summary" class="sub" style="margin-left:auto"></span>
+    </div>
+  </div>
+
+  <div id="jobs"></div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px;font-size:15px">Downloaded files</h3>
+    <div class="row" style="margin-bottom:8px">
+      <button id="del-selected" class="secondary danger" type="button" disabled>Delete selected</button>
+      <button id="del-all" class="secondary danger" type="button">Delete all</button>
+      <label style="margin-left:auto;font-size:12px;color:#9aa0a6;cursor:pointer">
+        <input type="checkbox" id="select-all" /> Select all
+      </label>
+    </div>
+    <ul id="files" class="files"><li class="sub">(none yet)</li></ul>
+  </div>
+
+  <div id="preview-mask" class="preview-mask" role="dialog" aria-modal="true" aria-label="Video preview">
+    <div class="preview-panel">
+      <div class="preview-head">
+        <div id="preview-title" class="preview-title">Preview</div>
+        <button id="preview-close" class="secondary preview-close" type="button">Close</button>
+      </div>
+      <video id="preview-video" class="preview-video" controls playsinline></video>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const jobsEl = $('jobs');
+const filesEl = $('files');
+const summaryEl = $('summary');
+const previewMask = $('preview-mask');
+const previewVideo = $('preview-video');
+const previewTitle = $('preview-title');
+
+function isMp4(name) {
+  return /\.mp4$/i.test(name || '');
+}
+
+function openPreview(url, name) {
+  previewTitle.textContent = name || 'Preview';
+  previewVideo.src = url;
+  previewMask.classList.add('show');
+  previewVideo.play().catch(() => {});
+}
+
+function closePreview() {
+  previewMask.classList.remove('show');
+  previewVideo.pause();
+  previewVideo.removeAttribute('src');
+  previewVideo.load();
+}
+
+$('preview-close').onclick = closePreview;
+previewMask.addEventListener('click', (e) => {
+  if (e.target === previewMask) closePreview();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && previewMask.classList.contains('show')) closePreview();
+});
+
+async function refreshFiles() {
+  try {
+    const res = await fetch('/api/list');
+    const data = await res.json();
+    if (!data.files.length) {
+      filesEl.innerHTML = '<li class="sub">(none yet)</li>';
+      return;
+    }
+    filesEl.innerHTML = data.files.map(f =>
+      `<li><input type="checkbox" class="file-cb" data-name="${f.name}" />
+        ${isMp4(f.name)
+          ? `<button class="preview-link" type="button" data-preview-url="${f.url}" data-preview-name="${f.name}">${f.name}</button>`
+          : `<a class="dl" href="${f.url}" download>${f.name}</a>`}
+        <a class="dl" href="${f.url}" download>download</a>
+        <span class="sub"> — ${(f.size / 1048576).toFixed(1)} MB</span></li>`
+    ).join('');
+    updateDeleteButtons();
+  } catch (e) {
+    filesEl.innerHTML = `<li class="err">Failed to list: ${e}</li>`;
+  }
+}
+$('refresh').onclick = refreshFiles;
+refreshFiles();
+
+function getSelectedFiles() {
+  return [...document.querySelectorAll('.file-cb:checked')].map(cb => cb.dataset.name);
+}
+function getAllFiles() {
+  return [...document.querySelectorAll('.file-cb')].map(cb => cb.dataset.name);
+}
+function updateDeleteButtons() {
+  const total = document.querySelectorAll('.file-cb').length;
+  const checked = document.querySelectorAll('.file-cb:checked').length;
+  $('del-selected').disabled = checked === 0;
+  $('del-all').disabled = total === 0;
+  $('select-all').checked = total > 0 && checked === total;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('file-cb')) updateDeleteButtons();
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.preview-link');
+  if (!btn) return;
+  openPreview(btn.dataset.previewUrl, btn.dataset.previewName);
+});
+$('select-all').onchange = () => {
+  const state = $('select-all').checked;
+  document.querySelectorAll('.file-cb').forEach(cb => cb.checked = state);
+  updateDeleteButtons();
+};
+
+async function deleteFiles(files) {
+  if (!files.length) return;
+  if (!confirm(`Delete ${files.length} file(s)?`)) return;
+  try {
+    const res = await fetch('/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    });
+    const data = await res.json();
+    if (data.errors && data.errors.length) {
+      alert('Some files could not be deleted:\n' + data.errors.map(e => `${e.file}: ${e.error}`).join('\n'));
+    }
+  } catch (e) {
+    alert('Delete failed: ' + e);
+  }
+  refreshFiles();
+}
+$('del-selected').onclick = () => deleteFiles(getSelectedFiles());
+$('del-all').onclick = () => deleteFiles(getAllFiles());
+
+async function checkRequirements() {
+  try {
+    const res = await fetch('/api/check');
+    const data = await res.json();
+    const missing = [];
+    if (!data.ytdlp.installed)
+      missing.push('<li><code>yt-dlp</code> — install with <code>pip install -U yt-dlp</code></li>');
+    if (!data.ffmpeg.installed)
+      missing.push('<li><code>ffmpeg</code> — install with <code>winget install FFmpeg</code> / <code>brew install ffmpeg</code> / <code>sudo apt install ffmpeg</code></li>');
+    const banner = $('req-banner');
+    if (missing.length) {
+      $('req-list').innerHTML = missing.join('');
+      banner.style.display = 'block';
+      $('start').disabled = true;
+    } else {
+      banner.style.display = 'none';
+      $('start').disabled = false;
+    }
+  } catch (e) {
+    // server not reachable — ignore, will fail on download anyway
+  }
+}
+checkRequirements();
+
+function makeItem(index, url) {
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.innerHTML = `
+    <div class="url">#${index + 1} ${url}</div>
+    <div class="status">Queued…</div>
+    <div class="bar"><span></span></div>
+    <div class="log"></div>
+  `;
+  jobsEl.appendChild(el);
+  return {
+    root: el,
+    status: el.querySelector('.status'),
+    bar: el.querySelector('.bar > span'),
+    log: el.querySelector('.log'),
+  };
+}
+
+$('start').onclick = async () => {
+  const raw = $('urls').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!raw.length) return;
+  $('start').disabled = true;
+  jobsEl.innerHTML = '';
+  summaryEl.textContent = `Starting ${raw.length} URL(s)…`;
+
+  const items = raw.map((u, i) => makeItem(i, u));
+
+  let job;
+  try {
+    const res = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls: raw }),
+    });
+    job = (await res.json()).job;
+  } catch (e) {
+    summaryEl.innerHTML = `<span class="err">Failed to start: ${e}</span>`;
+    $('start').disabled = false;
+    return;
+  }
+
+  const es = new EventSource(`/api/events?job=${job}`);
+  let doneCount = 0;
+  let okCount = 0;
+
+  es.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    const it = msg.index != null ? items[msg.index] : null;
+    switch (msg.type) {
+      case 'start':
+        if (it) it.status.textContent = 'Downloading…';
+        break;
+      case 'progress':
+        if (it) {
+          it.bar.style.width = msg.percent + '%';
+          it.status.textContent = `Downloading ${msg.percent.toFixed(1)}%`;
+        }
+        break;
+      case 'log':
+        if (it) {
+          it.log.textContent += msg.message + '\n';
+          it.log.scrollTop = it.log.scrollHeight;
+        }
+        break;
+      case 'result':
+        doneCount++;
+        if (it) {
+          if (msg.ok && msg.file) {
+            okCount++;
+            it.bar.style.width = '100%';
+            const url = '/files/' + encodeURI(msg.file);
+            if (isMp4(msg.file)) {
+              it.status.innerHTML = `<span class="ok">Done</span> — <button class="preview-link" type="button" data-preview-url="${url}" data-preview-name="${msg.file}">${msg.file}</button> <a class="dl" href="${url}" download>download</a>`;
+            } else {
+              it.status.innerHTML = `<span class="ok">Done</span> — <a class="dl" href="${url}" download>${msg.file}</a>`;
+            }
+          } else {
+            it.status.innerHTML = `<span class="err">Failed</span> ${msg.message || ''}`;
+          }
+        }
+        summaryEl.textContent = `${doneCount}/${items.length} finished (${okCount} ok)`;
+        break;
+      case 'error':
+        summaryEl.innerHTML = `<span class="err">${msg.message}</span>`;
+        break;
+      case 'done':
+        es.close();
+        $('start').disabled = false;
+        refreshFiles();
+        break;
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    $('start').disabled = false;
+    summaryEl.innerHTML = `<span class="err">Event stream closed.</span>`;
+  };
+};
+</script>
+</body>
+</html>

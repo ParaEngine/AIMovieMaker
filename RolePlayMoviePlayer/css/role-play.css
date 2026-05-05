@@ -1,0 +1,285 @@
+/* =================== Role-Play Movie — Styles =================== */
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #05050a;
+  color: #e0e0e0;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow: hidden;
+}
+
+#rpRoot {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #05050a;
+}
+
+.hidden { display: none !important; }
+
+/* ----------- buttons ----------- */
+.rp-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s, border-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+.rp-btn-primary { background: #6366f1; color: #fff; }
+.rp-btn-primary:hover { opacity: 0.9; }
+.rp-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.rp-btn-ghost {
+  background: #1a1a2e;
+  color: #cdd2e0;
+  border: 1px solid #2a2a3e;
+}
+.rp-btn-ghost:hover { border-color: #6366f1; color: #a5b4fc; }
+
+/* ----------- loader / result flow screens ----------- */
+.rp-flow-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
+}
+.rp-flow-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+.rp-flow-title span { color: #818cf8; }
+.rp-flow-msg { color: #9aa0b4; font-size: 14px; }
+.rp-flow-err {
+  color: #fca5a5;
+  font-size: 13px;
+  max-width: 520px;
+  min-height: 1.4em;
+}
+.rp-flow-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: stretch;
+  width: min(560px, 92vw);
+}
+.rp-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+}
+.rp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9aa0b4;
+  text-align: left;
+}
+.rp-field input,
+.rp-field textarea {
+  background: #13131f;
+  color: #e0e0e0;
+  border: 1px solid #26263a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.rp-field textarea {
+  min-height: 160px;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+#rpPasteWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rp-flow-link-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+.rp-flow-link {
+  color: #a5b4fc;
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(165, 180, 252, 0.5);
+  padding-bottom: 1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.rp-flow-link:hover {
+  color: #c7d2fe;
+  border-bottom-color: #c7d2fe;
+}
+
+/* ----------- videoParser project list ----------- */
+.rp-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: #0f0f1a;
+  border: 1px solid #26263a;
+  border-radius: 10px;
+}
+.rp-project-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #13131f;
+  border: 1px solid #26263a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rp-project-item:hover {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(99,102,241,0.05));
+}
+.rp-project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.rp-project-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #9aa0b4;
+}
+
+/* ----------- result ----------- */
+.rp-result-stars {
+  font-size: 56px;
+  letter-spacing: 12px;
+}
+.rp-result-stats {
+  font-size: 16px;
+  line-height: 1.8;
+  color: #cdd2e0;
+}
+
+/* ----------- role pick ----------- */
+.rp-role-screen {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  padding: 32px 20px;
+}
+.rp-role-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+}
+.rp-role-desc {
+  color: #9aa0b4;
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.6;
+  max-width: 600px;
+}
+.rp-role-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  width: min(900px, 96vw);
+}
+.rp-empty {
+  color: #9aa0b4;
+  font-size: 14px;
+  padding: 24px;
+}
+.rp-char-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #13131f;
+  border: 1px solid #26263a;
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.rp-char-card:hover { border-color: #6366f1; }
+.rp-char-card:has(.rp-char-check:checked) {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(99,102,241,0.05));
+}
+.rp-char-check {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  accent-color: #6366f1;
+  flex-shrink: 0;
+}
+.rp-char-body { flex: 1; min-width: 0; }
+.rp-char-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.rp-char-name { font-size: 16px; font-weight: 700; color: #fff; }
+.rp-char-meta { font-size: 12px; color: #818cf8; }
+.rp-char-lines {
+  margin-left: auto;
+  font-size: 12px;
+  color: #9aa0b4;
+  background: #1a1a2e;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.rp-char-desc {
+  font-size: 13px;
+  color: #cdd2e0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.rp-role-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 12px 0 24px;
+}
+
+/* mobile tweaks */
+@media (max-width: 600px) {
+  .rp-flow-title { font-size: 22px; }
+  .rp-result-stars { font-size: 40px; letter-spacing: 6px; }
+}

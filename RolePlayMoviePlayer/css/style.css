@@ -1,0 +1,2298 @@
+/* =================== 单机版 H5 基础样式（原 shared/base/game-base.css 的最小子集） =================== */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  /* font-size 由 role-play-movie.html 中的内嵌响应式脚本动态设置，此处仅作回退 */
+  font-size: 10px;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont,
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.5;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 注册可动画化的石化揭示进度变量 */
+@property --stone-reveal {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+/* =================== 影视配音秀 — 游戏样式 =================== */
+
+:root {
+  --rps-bg: #0a0a1a;
+  --rps-subtitle-bg: rgba(0, 0, 0, 0.85);
+  --rps-subtitle-color: #ffffff;
+  --rps-subtitle-highlight: #ffd700;
+  --rps-subtitle-dim: rgba(255, 255, 255, 0.4);
+  --rps-subtitle-done: #ffffff;
+  --rps-accent: #4fc3f7;
+  --rps-success: #66bb6a;
+  --rps-fail: #ef5350;
+  --rps-toast-bg: rgba(0, 0, 0, 0.8);
+}
+
+/* =================== 壳 =================== */
+
+.rps-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--rps-bg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rps-screen {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background: #000;
+}
+
+/* =================== 视频区 =================== */
+
+.rps-video-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+
+.rps-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Overlay 模式：视频画面整体上移，为跟读字幕腾出底部空间 */
+.overlay-mode .rps-video {
+  object-position: center var(--overlay-video-object-position-y, 32%);
+}
+
+/* =================== 点击播放遮罩 =================== */
+
+.rps-tap-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 20;
+  cursor: pointer;
+}
+
+.rps-tap-play-overlay.hidden {
+  display: none;
+}
+
+.rps-tap-play-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rps-tap-play-btn svg {
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4));
+}
+
+/* =================== 慢镜头遮罩 =================== */
+
+.rps-slowmo-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.rps-slowmo-overlay.hidden {
+  display: none;
+}
+
+.rps-slowmo-pulse {
+  width: 8rem;
+  height: 8rem;
+  border-radius: 50%;
+  border: 0.3rem solid var(--rps-accent);
+  animation: rps-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes rps-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 1; }
+}
+
+.rps-slowmo-text {
+  margin-top: 1.2rem;
+  font-size: 2rem;
+  color: #fff;
+  text-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.8);
+  font-weight: bold;
+}
+
+/* =================== 状态提示 =================== */
+
+.rps-status-toast {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--rps-toast-bg);
+  color: #fff;
+  font-size: 2.4rem;
+  font-weight: bold;
+  padding: 1.2rem 3rem;
+  border-radius: 1.2rem;
+  z-index: 20;
+  pointer-events: none;
+  animation: rps-toast-in 0.3s ease-out;
+}
+
+.rps-status-toast.hidden {
+  display: none;
+}
+
+.rps-status-toast.rps-toast-success {
+  background: rgba(102, 187, 106, 0.9);
+}
+
+.rps-status-toast.rps-toast-fail {
+  background: rgba(239, 83, 80, 0.9);
+}
+
+@keyframes rps-toast-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* =================== Step 2 Overlay 单词浮层 =================== */
+
+.rps-overlay-caption-area {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  pointer-events: none;
+  text-align: center;
+  transition: opacity 0.3s ease;
+}
+
+.rps-overlay-caption-area.hidden {
+  display: none;
+}
+
+/* intro: centered large word */
+.rps-overlay-caption-area[data-stage="intro"] {
+  opacity: 0.92;
+}
+
+/* movie: slightly dimmed so dubbing subtitle is primary */
+.rps-overlay-caption-area[data-stage="movie"] {
+  opacity: 0.7;
+  top: 18%;
+  transform: translate(-50%, -50%) scale(0.75);
+}
+
+/* review: back to centered with translation */
+.rps-overlay-caption-area[data-stage="review"] {
+  opacity: 0.92;
+}
+
+.rps-overlay-caption-word {
+  font-size: 4.5rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  letter-spacing: 0.04em;
+}
+
+.rps-overlay-caption-ipa {
+  font-size: 2rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  font-family: 'Noto Sans', 'Helvetica Neue', sans-serif;
+}
+
+.rps-overlay-caption-zh {
+  font-size: 1.6rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  margin-top: 0.8rem;
+  max-width: 80vw;
+  line-height: 1.5;
+}
+
+.rps-overlay-caption-zh.hidden {
+  display: none;
+}
+
+/* =================== 词汇跟读模式字幕区 =================== */
+
+:root {
+  --overlay-safe-bottom: 84px;
+}
+
+.voc-subtitle-area {
+  position: absolute;
+  bottom: calc(var(--overlay-safe-bottom) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: 90%;
+  padding: 12px 24px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 12px;
+  z-index: 10;
+  text-align: center;
+  transition: opacity 0.3s ease;
+}
+
+.voc-subtitle-area.hidden {
+  display: none;
+}
+
+/* 英文目标句 */
+.voc-subtitle-target {
+  font-size: 20px;
+  font-weight: 500;
+  font-family: system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.02em;
+  word-spacing: 0.15em;
+  line-height: 1.6;
+  color: #fff;
+}
+
+/* 中文翻译 */
+.voc-subtitle-zh {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* --- 三档词风格 --- */
+.voc-word {
+  display: inline;
+  transition: color 0.2s ease;
+}
+
+.voc-word--dim {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.voc-word--active {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: rgba(255, 255, 255, 0.6);
+}
+
+.voc-word--matched {
+  color: #4CAF50;
+}
+
+.voc-word--skipped {
+  color: rgba(255, 100, 100, 0.6);
+}
+
+/* --- 麦克风指示器 --- */
+.voc-mic-indicator {
+  position: absolute;
+  top: -28px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.voc-mic-indicator.hidden {
+  display: none;
+}
+
+.voc-mic-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.voc-mic-dot--recording {
+  background: #ef5350;
+  animation: voc-mic-pulse 1.2s infinite;
+}
+
+.voc-mic-dot--waiting {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes voc-mic-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+/* --- PASS/FAIL 轻量反馈 --- */
+.voc-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  font-weight: 700;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.voc-feedback--pass {
+  color: #4CAF50;
+}
+
+.voc-feedback--fail {
+  color: #FF9800;
+  font-size: 18px;
+}
+
+.voc-feedback--visible {
+  animation: voc-feedback-pop 0.8s ease-out forwards;
+}
+
+@keyframes voc-feedback-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  40%  { opacity: 1; transform: translate(-50%, -50%) scale(1.0); }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(1.0); }
+}
+
+/* --- 移动端适配 --- */
+@media (max-width: 640px) {
+  .voc-subtitle-target { font-size: 16px; }
+  .voc-subtitle-zh { font-size: 13px; }
+  .voc-subtitle-area { padding: 8px 16px; }
+  .voc-progress-bar { height: 32px; padding: 0 8px; }
+  .voc-pb-time, .voc-pb-duration { font-size: 11px; }
+}
+
+/* =================== 词汇跟读模式 — 视频进度条 =================== */
+
+.voc-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  z-index: 30;
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.voc-progress-bar.hidden {
+  display: none;
+}
+
+/* 播放/暂停按钮 */
+.voc-pb-play {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voc-pb-play:hover { color: #fff; }
+.voc-pb-play svg { width: 18px; height: 18px; }
+.voc-pb-icon-pause { display: none; }
+.voc-progress-bar.playing .voc-pb-icon-play { display: none; }
+.voc-progress-bar.playing .voc-pb-icon-pause { display: block; }
+
+/* 时间显示 */
+.voc-pb-time, .voc-pb-duration {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 进度条轨道 */
+.voc-pb-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  position: relative;
+  cursor: pointer;
+}
+
+.voc-pb-track:hover {
+  height: 6px;
+}
+
+.voc-pb-filled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 2px;
+  pointer-events: none;
+  width: 0%;
+}
+
+.voc-pb-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.voc-pb-track:hover .voc-pb-thumb,
+.voc-progress-bar.seeking .voc-pb-thumb {
+  opacity: 1;
+}
+
+/* 速度按钮 + 弹出菜单 */
+.voc-pb-speed-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.voc-pb-speed {
+  flex-shrink: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.voc-pb-speed:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.voc-pb-speed-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: rgba(30, 30, 30, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 64px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 40;
+}
+
+.voc-pb-speed-menu.hidden {
+  display: none;
+}
+
+.voc-pb-speed-option {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  text-align: center;
+  font-family: system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+}
+
+.voc-pb-speed-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.voc-pb-speed-option.selected {
+  color: #4CAF50;
+  font-weight: 700;
+}
+
+/* =================== 字幕区 =================== */
+
+.rps-subtitle-area {
+  position: absolute;
+  bottom: calc(2rem + 45px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  min-width: 50%;
+  max-width: 88%;
+  display: grid;
+  grid-template-areas:
+    "native"
+    "target"
+    "track"
+    "ipa"
+    "preview"
+    "user";
+  grid-template-rows:
+    minmax(2rem, auto)   /* 母语 (native) */
+    minmax(2.4rem, auto) /* 原文 (target) */
+    36px                 /* 音素球轨道 (track) */
+    minmax(1.4rem, auto) /* IPA */
+    minmax(1.4rem, auto) /* 下句预览 */
+    minmax(0, auto);     /* 用户字幕 */
+  justify-items: center;
+  align-items: center;
+  gap: 2px;
+  padding: 1rem 3rem 0.8rem;
+  background: rgba(20, 10, 15, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 1.6rem;
+  border: 1.5px solid rgba(200, 140, 160, 0.35);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 200, 220, 0.08);
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* 字幕内容淡出态（容器保持可见） */
+.rps-subtitle-area.rps-content-faded {
+  opacity: 0.35;
+}
+
+.rps-subtitle-text {
+  display: contents;
+  font-size: 2.4rem;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--rps-subtitle-color);
+}
+
+/* =================== v3 字幕 — 辅助层样式 =================== */
+
+/* L4: IPA 层 (国际音标 / 罗马音 / 拼音) */
+.rps-sub-ipa {
+  grid-area: ipa;
+  font-size: 1.4rem;
+  line-height: 1.4;
+  color: rgba(155, 187, 238, 0.85);
+  font-family: 'MedievalSharp', 'Georgia', serif;
+  text-align: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.02em;
+  min-height: 0;
+  transition: opacity 0.25s ease;
+}
+
+.rps-sub-ipa:empty {
+  visibility: hidden;
+  min-height: 1.4em;
+}
+
+/* L5: 下句预览层 */
+.rps-sub-preview {
+  grid-area: preview;
+  font-size: 1.4rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.28);
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  text-align: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 0;
+  transition: opacity 0.25s ease;
+}
+
+.rps-sub-preview:empty {
+  visibility: hidden;
+  min-height: 1.4em;
+}
+
+/* =================== L2: 音素球轨道 =================== */
+
+.rps-phoneme-track {
+  grid-area: track;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 36px;
+  pointer-events: none;
+  min-height: 0;
+}
+
+.rps-phoneme-track:empty {
+  visibility: hidden;
+}
+
+.rps-ball {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-family: 'MedievalSharp', 'Georgia', serif;
+  font-size: 10px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+/* 五阶段生命周期 */
+.rps-ball--preview {
+  width: 16px; height: 16px;
+  opacity: 0.3;
+  border: 1.5px dashed rgba(200, 170, 120, 0.4);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.rps-ball--waiting {
+  width: 20px; height: 20px;
+  opacity: 0.7;
+  border: 1.5px solid rgba(200, 170, 120, 0.3);
+  background: linear-gradient(180deg, rgba(60, 50, 40, 0.6), rgba(30, 25, 20, 0.8));
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.rps-ball--active {
+  width: 36px; height: 36px;
+  opacity: 1;
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  background: linear-gradient(180deg, rgba(80, 65, 40, 0.8), rgba(40, 30, 20, 0.9));
+  color: #ffd700;
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.6);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.rps-ball--judging {
+  width: 32px; height: 32px;
+  opacity: 1;
+  border: 2px solid rgba(255, 215, 0, 0.4);
+  background: linear-gradient(180deg, rgba(60, 50, 40, 0.7), rgba(30, 25, 20, 0.8));
+  color: #ffd700;
+  animation: rps-ball-pulse 0.3s ease-in-out 2;
+}
+
+.rps-ball--afterglow {
+  width: 12px; height: 12px;
+  opacity: 0.4;
+  border: 1px solid rgba(200, 170, 120, 0.2);
+  background: rgba(40, 30, 20, 0.5);
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 8px;
+}
+
+/* 球类型色环 */
+.rps-ball--vowel {
+  border-color: #e0a040;
+}
+.rps-ball--consonant {
+  border-color: #b0b0c0;
+}
+
+/* Gold Chant 关键球 */
+.rps-ball--gold-chant {
+  border-width: 3px;
+  border-color: #ffd700;
+}
+
+@keyframes rps-ball-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(0.78); }
+}
+
+/* 球评分粒子 */
+.rps-ball-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: rps-particle-burst 0.5s ease-out forwards;
+}
+
+@keyframes rps-particle-burst {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* =================== HUD 四角系统 =================== */
+
+.rps-hud-panel {
+  position: fixed;
+  z-index: 12;
+  min-width: 160px;
+  max-width: 280px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: #e8e0d0;
+  font-family: 'MedievalSharp', 'Georgia', serif;
+  font-size: 13px;
+  line-height: 1.5;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.rps-hud-panel.rps-hud-visible {
+  opacity: 1;
+}
+
+/* HUD 位置 — 对齐屏幕四角边缘，无圆角完全融合 */
+.rps-hud-tl { top: 15px; left: 15px; }
+.rps-hud-tr { top: 15px; right: 15px; text-align: right; }
+.rps-hud-bl { bottom: 15px; left: 15px; }
+.rps-hud-br { bottom: 15px; right: 15px; }
+
+/* HUD 分隔线 */
+.rps-hud-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 6px 0;
+}
+
+/* ---- HUD-TL: 战斗状态 ---- */
+.rps-bar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.rps-bar-wrapper:last-child { margin-bottom: 0; }
+
+.rps-bar-label {
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 48px;
+}
+
+.rps-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 80px;
+}
+
+.rps-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.rps-bar-mana {
+  background: linear-gradient(90deg, #6a40b0, #a06ae0);
+}
+
+.rps-bar-hp {
+  background: linear-gradient(90deg, #c0392b, #e74c3c);
+}
+
+.rps-bar-value {
+  font-size: 11px;
+  min-width: 48px;
+  text-align: right;
+  color: rgba(232, 224, 208, 0.7);
+}
+
+/* 进度条低阈值抖动 */
+.rps-bar-fill.rps-bar-low {
+  animation: rps-bar-danger 0.6s ease-in-out infinite;
+}
+
+@keyframes rps-bar-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ---- HUD-TR: 资源货币 ---- */
+.rps-hud-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.rps-hud-row:last-child { margin-bottom: 0; }
+
+.rps-coin-icon { font-size: 16px; }
+
+.rps-coin-value {
+  color: #ffd700;
+  font-weight: bold;
+  font-size: 15px;
+  transition: transform 0.2s ease-out;
+}
+.rps-coin-value.rps-value-bump {
+  transform: scale(1.15);
+}
+
+.rps-combo-hud-value {
+  color: #ffd700;
+  font-weight: bold;
+  transition: transform 0.2s ease-out;
+}
+.rps-combo-hud-value.rps-value-bump {
+  transform: scale(1.15);
+}
+
+.rps-boost-value {
+  color: rgba(232, 224, 208, 0.7);
+}
+
+/* ---- HUD-BL: 剧情任务 ---- */
+.rps-quest-chapter {
+  font-size: 12px;
+  color: rgba(232, 224, 208, 0.6);
+  margin-bottom: 4px;
+}
+
+.rps-quest-desc {
+  font-size: 13px;
+  color: #e8e0d0;
+  margin-bottom: 6px;
+}
+
+.rps-quest-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rps-quest-progress {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rps-quest-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #9b59b6, #c39bd3);
+  transition: width 0.4s ease;
+}
+
+/* 卡拉OK字幕 — 逐词样式 */
+.rps-word {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 0;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: baseline;
+  position: relative;
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+.rps-word--dim {
+  color: var(--rps-subtitle-dim);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  filter: drop-shadow(0 0 0 transparent);
+}
+
+.rps-word--active {
+  color: var(--rps-subtitle-highlight);
+  text-shadow: 0 0 0.8rem var(--rps-subtitle-highlight);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  filter: drop-shadow(0 0 0 transparent);
+  animation: rps-word-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes rps-word-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+/* ---- 金属化方块：所有已读词共用基础 ---- */
+.rps-word[class*="--t"] {
+  color: #e8e4dc;
+  text-shadow:
+    0 1px 1px rgba(0,0,0,0.8),
+    0 -1px 0 rgba(255,255,255,0.08);
+  border: none;
+  /* 金属浮雕边框 */
+  box-shadow:
+    inset 0  1px 1px rgba(255,255,255,0.18),
+    inset 0 -1px 1px rgba(0,0,0,0.35),
+    inset 1px 0 1px rgba(255,255,255,0.08),
+    inset -1px 0 1px rgba(0,0,0,0.2);
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+  animation: rps-forge 0.8s ease-out both;
+  -webkit-mask-image: linear-gradient(to right, black 0%, black var(--stone-reveal, 0%), transparent var(--stone-reveal, 0%));
+  mask-image: linear-gradient(to right, black 0%, black var(--stone-reveal, 0%), transparent var(--stone-reveal, 0%));
+}
+
+/* 锈迹/金属纹理覆盖层 — 由 JS var(--stone-cracks) 驱动 */
+.rps-word[class*="--t"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--stone-cracks);
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+/* 金属高光反射 + 表面微粒 */
+.rps-word[class*="--t"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    /* 金属光泽条纹 — 对角线高光 */
+    linear-gradient(
+      135deg,
+      transparent 20%,
+      rgba(255,255,255, var(--metal-sheen, 0.06)) 40%,
+      rgba(255,255,255, var(--metal-sheen, 0.06)) 42%,
+      transparent 60%
+    ),
+    /* 表面微粒噪点 */
+    repeating-conic-gradient(rgba(0,0,0,0.03) 0% 25%, transparent 0% 50%) 0 0 / 3px 3px;
+  pointer-events: none;
+}
+
+/* 锻造凝固动画 (从左到右) */
+@keyframes rps-forge {
+  0%   { --stone-reveal: 0%; opacity: 0.5; }
+  100% { --stone-reveal: 110%; opacity: 1; }
+}
+
+/* ---- 10档金属填充：锈铁(0) → 黄金(10) ---- */
+
+/* t0 (0分): 深锈——斑驳铁锈红，粗糙 */
+.rps-word--t0 {
+  background: linear-gradient(175deg, #6b3222 0%, #4a2010 50%, #3a1508 100%);
+  color: #a08070; opacity: 0.8;
+  --metal-sheen: 0.02;
+}
+/* t1 (10分): 重锈铁 */
+.rps-word--t1 {
+  background: linear-gradient(175deg, #7a3a20 0%, #5c2814 50%, #48200e 100%);
+  color: #b09080;
+  --metal-sheen: 0.03;
+}
+/* t2 (20分): 锈铁 */
+.rps-word--t2 {
+  background: linear-gradient(175deg, #8a4428 0%, #6a3218 50%, #522810 100%);
+  color: #c0a090;
+  --metal-sheen: 0.04;
+}
+/* t3 (30分): 斑驳铁 */
+.rps-word--t3 {
+  background: linear-gradient(175deg, #7a5640 0%, #5c3e2c 50%, #483020 100%);
+  color: #c8b0a0;
+  --metal-sheen: 0.05;
+}
+/* t4 (40分): 旧铁板 */
+.rps-word--t4 {
+  background: linear-gradient(175deg, #6a6058 0%, #504840 50%, #3e3832 100%);
+  color: #d0c4b8;
+  --metal-sheen: 0.06;
+}
+/* t5 (50分): 灰铁 */
+.rps-word--t5 {
+  background: linear-gradient(175deg, #5e5e5e 0%, #484848 50%, #383838 100%);
+  color: #d8d0c8;
+  --metal-sheen: 0.08;
+}
+/* t6 (60-70分): 黑铁 — 深灰黑金属 */
+.rps-word--t6 {
+  background: linear-gradient(175deg, #3a3a40 0%, #2a2a30 40%, #1e1e24 100%);
+  color: #c0c0c8;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.9), 0 -1px 0 rgba(180,180,200,0.1);
+  --metal-sheen: 0.10;
+}
+/* t7 (70-80分): 黄铜 — 温暖金铜色 */
+.rps-word--t7 {
+  background: linear-gradient(175deg, #b8862e 0%, #96701e 35%, #7a5c14 100%);
+  color: #f4e8c0;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.6), 0 -1px 0 rgba(255,240,180,0.15);
+  --metal-sheen: 0.14;
+}
+/* t8 (80-90分): 白银 — 冷亮银色 */
+.rps-word--t8 {
+  background: linear-gradient(175deg, #c0c0cc 0%, #9898a8 35%, #787888 100%);
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.4), 0 -1px 0 rgba(255,255,255,0.25), 0 0 6px rgba(200,200,220,0.3);
+  --metal-sheen: 0.18;
+}
+/* t9 (90-100分): 淡金 — 接近纯金但微亮 */
+.rps-word--t9 {
+  background: linear-gradient(175deg, #daa520 0%, #c4941a 35%, #a87c12 100%);
+  color: #fff8e0;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.4), 0 -1px 0 rgba(255,250,200,0.2), 0 0 8px rgba(218,165,32,0.35);
+  --metal-sheen: 0.22;
+}
+/* t10 (100分): 纯金 — 璀璨金色 */
+.rps-word--t10 {
+  background: linear-gradient(175deg, #ffd700 0%, #daa520 30%, #b8860b 100%);
+  color: #fffbe8;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.3), 0 -1px 0 rgba(255,255,240,0.3), 0 0 12px rgba(255,215,0,0.5);
+  font-weight: bold;
+  --metal-sheen: 0.28;
+}
+
+.rps-word--done {
+  color: var(--rps-subtitle-done);
+}
+
+/* =================== 判定弹出 + 积分 HUD =================== */
+
+.rps-judgment-layer {
+  position: absolute;
+  top: 0; right: 0;
+  width: 220px;
+  height: 100%;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 60px 16px 0 0;
+}
+
+.rps-sentence-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 14;
+}
+
+.rps-stamp-layer,
+.rps-diagnostic-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.rps-feedback-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 18;
+}
+
+/* ---- 右上角积分 HUD (嵌入 HUD-TR 面板) ---- */
+.rps-score-hud {
+  pointer-events: none;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  text-align: right;
+}
+.rps-score-hud-label {
+  font-size: 1.2rem;
+  color: rgba(255,255,255,0.6);
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.rps-score-hud-value {
+  font-size: 2.8rem;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 12px rgba(255,215,0,0.6), 0 2px 6px rgba(0,0,0,0.6);
+  line-height: 1.1;
+  transition: transform 0.15s ease, color 0.3s ease;
+}
+.rps-score-hud-value.rps-score-bump {
+  transform: scale(1.25);
+  color: #fff;
+}
+/* 句子得分摘要 (得分/总分) */
+.rps-sentence-score {
+  font-size: 1.1rem;
+  color: rgba(255,255,255,0.7);
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.rps-sentence-score.rps-sentence-show {
+  opacity: 1;
+}
+/* 分数飞入 HUD 的动效元素 */
+.rps-score-fly {
+  position: fixed;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  font-size: 1.6rem;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255,215,0,0.8), 0 2px 6px rgba(0,0,0,0.5);
+  pointer-events: none;
+  z-index: 100;
+  transition: all 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+  opacity: 1;
+}
+.rps-score-fly.rps-fly-start {
+  transform: scale(1.2);
+}
+.rps-score-fly.rps-fly-end {
+  transform: scale(0.5);
+  opacity: 0;
+}
+
+/* ---- 判定弹出 ---- */
+.rps-judgment-popup {
+  position: relative;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.7), 0 0 4px rgba(0,0,0,0.4);
+  text-align: right;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+.rps-judge-score {
+  display: block;
+  font-size: 0.55em;
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+}
+
+/* 低档(0-3) — 锈铁色 */
+.rps-judge-t0  { font-size: 2rem;   color: #8b4513; animation: rps-judge-fade 1.4s ease-out forwards; }
+.rps-judge-t1  { font-size: 2.1rem; color: #a0522d; animation: rps-judge-fade 1.5s ease-out forwards; }
+.rps-judge-t2  { font-size: 2.2rem; color: #b86b3a; animation: rps-judge-fade 1.5s ease-out forwards; }
+.rps-judge-t3  { font-size: 2.4rem; color: #c07848; animation: rps-judge-fade 1.6s ease-out forwards; }
+
+/* 中档(4-6) — 灰铁→黑铁 */
+.rps-judge-t4  { font-size: 2.6rem; color: #808080; animation: rps-judge-slide 1.7s ease-out forwards; }
+.rps-judge-t5  { font-size: 2.8rem; color: #909090; animation: rps-judge-slide 1.8s ease-out forwards; }
+.rps-judge-t6  { font-size: 3rem;   color: #a0a0a8; animation: rps-judge-slide 1.8s ease-out forwards; }
+
+/* 高档(7-8) — 黄铜→白银 */
+.rps-judge-t7  { font-size: 3.2rem; color: #cd9b1d; animation: rps-judge-bounce 2s ease-out forwards; }
+.rps-judge-t8  { font-size: 3.5rem; color: #c0c0cc; animation: rps-judge-bounce 2s ease-out forwards; }
+
+/* 最高档(9-10) — 黄金 */
+.rps-judge-t9  { font-size: 3.8rem; color: #daa520; animation: rps-judge-explode 2.2s ease-out forwards; }
+.rps-judge-t10 { font-size: 4rem;   color: #ffd700; animation: rps-judge-explode 2.4s ease-out forwards; }
+
+/* 低档动画：弹入+停留+淡出 */
+@keyframes rps-judge-fade {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.8); }
+  10%  { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.95); }
+}
+
+/* 中档动画：右侧滑入+停留+淡出 */
+@keyframes rps-judge-slide {
+  0%   { opacity: 0; transform: translateX(30px) scale(0.7); }
+  12%  { opacity: 1; transform: translateX(0) scale(1.1); }
+  20%  { transform: translateX(0) scale(1); }
+  75%  { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-25px) scale(0.95); }
+}
+
+/* 高档动画：弹跳+停留 */
+@keyframes rps-judge-bounce {
+  0%   { opacity: 0; transform: translateX(40px) scale(0.4); }
+  10%  { opacity: 1; transform: translateX(-5px) scale(1.2); }
+  18%  { transform: translateX(2px) scale(0.95); }
+  25%  { transform: translateX(0) scale(1.05); }
+  35%  { transform: translateX(0) scale(1); }
+  75%  { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-30px) scale(0.95); }
+}
+
+/* 最高档动画：爆炸弹入+发光+长停留 */
+@keyframes rps-judge-explode {
+  0%   { opacity: 0; transform: scale(0.2); filter: brightness(2.5); }
+  8%   { opacity: 1; transform: scale(1.5); filter: brightness(1.8); }
+  16%  { transform: scale(0.9); filter: brightness(1.2); }
+  24%  { transform: scale(1.1); filter: brightness(1); }
+  32%  { transform: scale(1); }
+  75%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: translateY(-30px) scale(0.95); filter: brightness(1); }
+}
+
+/* 双语字幕行 */
+.rps-sub-native {
+  grid-area: native;
+  font-size: 2rem;
+  line-height: 1.5;
+  color: #fff;
+  opacity: 0.7;
+  text-align: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-weight: 400;
+}
+
+.rps-sub-target {
+  grid-area: target;
+  font-size: 2.2rem;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #fff;
+  text-align: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.rps-sub-target-karaoke {
+  grid-area: target;
+  font-size: 2.2rem;
+  line-height: 2.2;
+  font-weight: 400;
+  color: #fff;
+  text-align: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+}
+
+.rps-word-score-popup,
+.rps-combo-popup {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  text-transform: uppercase;
+  animation-fill-mode: forwards;
+}
+
+.rps-word-score-popup {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  padding: 0.32rem 0.84rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.24),
+    0 0.45rem 1rem rgba(0,0,0,0.28);
+  animation: rps-word-score-pop 0.68s ease-out forwards;
+}
+
+.rps-combo-popup {
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.12rem 0.32rem;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.55);
+  animation: rps-combo-pop 0.72s ease-out forwards;
+}
+
+.rps-word-score-popup--t0,
+.rps-combo-popup--t0 { background: linear-gradient(175deg, #6b3222 0%, #4a2010 100%); color: #f0d7c8; }
+.rps-word-score-popup--t1,
+.rps-combo-popup--t1 { background: linear-gradient(175deg, #7a3a20 0%, #5c2814 100%); color: #f3dcc8; }
+.rps-word-score-popup--t2,
+.rps-combo-popup--t2 { background: linear-gradient(175deg, #8a4428 0%, #6a3218 100%); color: #f7e0cf; }
+.rps-word-score-popup--t3,
+.rps-combo-popup--t3 { background: linear-gradient(175deg, #7a5640 0%, #5c3e2c 100%); color: #f0e6dd; }
+.rps-word-score-popup--t4,
+.rps-combo-popup--t4 { background: linear-gradient(175deg, #6a6058 0%, #504840 100%); color: #f1efe9; }
+.rps-word-score-popup--t5,
+.rps-combo-popup--t5 { background: linear-gradient(175deg, #5e5e5e 0%, #404040 100%); color: #f6f6f6; }
+.rps-word-score-popup--t6,
+.rps-combo-popup--t6 { background: linear-gradient(175deg, #3a3a40 0%, #1e1e24 100%); color: #f4f4ff; }
+.rps-word-score-popup--t7,
+.rps-combo-popup--t7 { background: linear-gradient(175deg, #b8862e 0%, #7a5c14 100%); color: #fff3d0; }
+.rps-word-score-popup--t8,
+.rps-combo-popup--t8 { background: linear-gradient(175deg, #c0c0cc 0%, #787888 100%); color: #fff; }
+.rps-word-score-popup--t9,
+.rps-combo-popup--t9 { background: linear-gradient(175deg, #daa520 0%, #a87c12 100%); color: #fff7d8; }
+.rps-word-score-popup--t10,
+.rps-combo-popup--t10 { background: linear-gradient(175deg, #ffd700 0%, #b8860b 100%); color: #fffdf2; }
+
+@keyframes rps-word-score-pop {
+  0% { opacity: 0; transform: translate(-50%, -75%) scale(0.75); }
+  18% { opacity: 1; transform: translate(-50%, -100%) scale(1.08); }
+  55% { opacity: 1; transform: translate(-50%, -110%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -145%) scale(0.96); }
+}
+
+@keyframes rps-combo-pop {
+  0% { opacity: 0; transform: translate(-50%, -70%) scale(0.7); }
+  20% { opacity: 1; transform: translate(-50%, -100%) scale(1.12); }
+  58% { opacity: 1; transform: translate(-50%, -112%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -145%) scale(0.96); }
+}
+
+.rps-diagnostic-card {
+  position: absolute;
+  right: 68px;
+  top: 142px;
+  width: min(600px, calc(100% - 48px));
+  padding: 32px 36px 28px;
+  border-radius: 36px;
+  background: linear-gradient(160deg, rgba(23,19,26,0.92) 0%, rgba(12,10,16,0.90) 100%);
+  border: 2px solid rgba(255,255,255,0.10);
+  box-shadow:
+    0 1.2rem 3rem rgba(0,0,0,0.38),
+    inset 0 1px 0 rgba(255,255,255,0.08);
+  color: #f6f0e8;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  animation: rps-card-in 0.3s ease-out forwards;
+}
+
+.rps-diagnostic-card.rps-diagnostic-card--pass {
+  border-color: rgba(226,190,82,0.26);
+}
+
+.rps-diagnostic-card.rps-diagnostic-card--fail {
+  border-color: rgba(205,92,92,0.30);
+}
+
+.rps-diagnostic-title {
+  font-size: 1.84rem;
+  letter-spacing: 0.18em;
+  opacity: 0.72;
+  margin-bottom: 1.1rem;
+}
+
+.rps-diagnostic-scoreline,
+.rps-diagnostic-combo,
+.rps-diagnostic-feedback,
+.rps-diagnostic-action {
+  font-size: 2rem;
+  line-height: 1.45;
+}
+
+.rps-diagnostic-scoreline strong,
+.rps-diagnostic-combo strong,
+.rps-diagnostic-action strong {
+  color: #fff7d8;
+}
+
+.rps-diagnostic-weak-list {
+  margin: 1.1rem 0 0.9rem;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.64rem;
+}
+
+.rps-diagnostic-weak-item {
+  font-size: 1.92rem;
+  line-height: 1.4;
+  color: #f1e1d6;
+}
+
+.rps-diagnostic-weak-item .en {
+  color: #fff3d0;
+}
+
+.rps-diagnostic-weak-item .zh {
+  color: rgba(210,226,255,0.88);
+}
+
+@keyframes rps-card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.rps-sentence-stamp {
+  position: absolute;
+  right: 92px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-8deg) scale(0.8);
+  min-width: 220px;
+  padding: 12px 22px;
+  border-radius: 18px;
+  border: 6px solid currentColor;
+  text-align: center;
+  font-family: 'MedievalSharp', 'Uncial Antiqua', 'Georgia', serif;
+  font-size: 3rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0;
+  box-shadow: 0 0.9rem 2.6rem rgba(0,0,0,0.34);
+  animation: rps-stamp-hit 0.82s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+.rps-sentence-stamp::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: repeating-linear-gradient(145deg, rgba(255,255,255,0.08) 0 3px, transparent 3px 11px);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+.rps-sentence-stamp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: radial-gradient(circle at 18% 22%, rgba(255,255,255,0.20), transparent 24%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.rps-sentence-stamp--pass {
+  color: #f7f8ff;
+  background: linear-gradient(160deg, rgba(14,37,97,0.92) 0%, rgba(8,22,58,0.9) 100%);
+  box-shadow:
+    0 0.9rem 2.8rem rgba(0,0,0,0.34),
+    0 0 0 2px rgba(255,255,255,0.14) inset;
+}
+
+.rps-sentence-stamp--fail {
+  color: #fff3e8;
+  background: linear-gradient(160deg, rgba(168,27,18,0.94) 0%, rgba(112,18,14,0.92) 100%);
+  box-shadow:
+    0 0.9rem 2.8rem rgba(0,0,0,0.38),
+    0 0 0 2px rgba(255,234,210,0.16) inset;
+}
+
+@keyframes rps-stamp-hit {
+  0% { opacity: 0; transform: translateY(-50%) rotate(-10deg) scale(1.35); }
+  38% { opacity: 1; transform: translateY(-50%) rotate(-8deg) scale(0.92); }
+  54% { transform: translateY(-50%) rotate(-8deg) scale(1.02); }
+  78% { opacity: 1; transform: translateY(-50%) rotate(-8deg) scale(1); }
+  100% { opacity: 0; transform: translateY(-50%) rotate(-8deg) scale(1); }
+}
+
+/* 试听按钮 — 隐藏 */
+.rps-tts-btn {
+  display: none;
+}
+
+/* =================== 用户语音字幕（配音时显示） =================== */
+
+.rps-user-subtitle {
+  grid-area: user;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0;
+  font-size: 2.2rem;
+  line-height: 1.5;
+  max-width: 100%;
+  text-align: center;
+}
+
+.rps-user-subtitle.hidden {
+  visibility: hidden;
+}
+
+.rps-user-subtitle-label {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 2.2rem;
+  font-weight: 400;
+  flex-shrink: 0;
+  margin-right: 0.3rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.rps-user-subtitle-text {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 2.2rem;
+  font-style: italic;
+  min-height: 1.5em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+
+
+/* =================== AI 助手字幕（底部始终可见） =================== */
+
+.rps-assistant-subtitle {
+  display: none;
+}
+
+.rps-assistant-subtitle:empty,
+.rps-assistant-subtitle:has(.rps-assistant-subtitle-text:empty) {
+  visibility: hidden;
+}
+
+.rps-assistant-subtitle-label {
+  color: rgba(220, 180, 255, 0.8);
+  font-size: 1.4rem;
+  font-weight: 400;
+  flex-shrink: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.rps-assistant-subtitle-text {
+  color: rgba(220, 190, 255, 0.85);
+  font-size: 1.6rem;
+  font-style: italic;
+  min-height: 1.5em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* =================== 配音控制栏 =================== */
+
+.rps-dubbing-bar {
+  position: relative;
+  padding: 0.8rem 2rem;
+  background: rgba(20, 20, 40, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  z-index: 5;
+  flex-shrink: 0;
+}
+
+.rps-dubbing-bar.hidden {
+  display: none;
+}
+
+.rps-mic-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rps-mic-icon {
+  font-size: 2rem;
+  animation: rps-mic-blink 1s ease-in-out infinite;
+}
+
+@keyframes rps-mic-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.rps-mic-label {
+  font-size: 1.4rem;
+  color: var(--rps-accent);
+}
+
+/* =================== 介绍屏 =================== */
+
+.rps-intro-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+  z-index: 100;
+  padding: 2rem;
+}
+
+.rps-intro-title {
+  font-size: 4rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 1.5rem;
+  text-shadow: 0 0.2rem 1rem rgba(79, 195, 247, 0.5);
+}
+
+.rps-intro-desc {
+  font-size: 1.8rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  max-width: 60rem;
+  line-height: 1.8;
+  margin-bottom: 3rem;
+}
+
+.rps-intro-start-btn {
+  font-size: 2rem;
+  padding: 1.2rem 4rem;
+  border: none;
+  border-radius: 5rem;
+  background: linear-gradient(90deg, var(--rps-accent), #29b6f6);
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.rps-intro-start-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0.4rem 2rem rgba(79, 195, 247, 0.4);
+}
+
+.rps-intro-start-btn:active {
+  transform: scale(0.98);
+}
+
+/* =================== 结果屏 =================== */
+
+.rps-result-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  z-index: 100;
+  padding: 2rem;
+}
+
+.rps-result-title {
+  font-size: 3.6rem;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 2rem;
+}
+
+.rps-result-stars {
+  font-size: 5rem;
+  margin-bottom: 2rem;
+}
+
+.rps-result-stats {
+  font-size: 1.8rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  line-height: 2;
+  margin-bottom: 3rem;
+}
+
+.rps-result-btn {
+  font-size: 1.8rem;
+  padding: 1rem 3.5rem;
+  border: none;
+  border-radius: 5rem;
+  background: linear-gradient(90deg, var(--rps-accent), #29b6f6);
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+/* =================== DHF 容器 — 两种模式 =================== */
+
+/* 模式 1: 右侧面板（加载/介绍/倒计时阶段）
+   全屏宽高比由 config DHF_FULL_ASPECT_RATIO (1/2) 决定 */
+.rps-dhf-container.rps-dhf-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: calc(100vh * var(--dhf-full-aspect-ratio, 0.5));
+  height: 100vh;
+  z-index: 300;
+  overflow: hidden;
+  background: transparent;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+/* 模式 2: 右下角头像窗口（配音/播放阶段）
+   头像宽高比由 config 推导: FULL_ASPECT_RATIO / PORTRAIT_HEIGHT_RATIO = 3/2 */
+.rps-dhf-container.rps-dhf-avatar {
+  position: fixed;
+  bottom: 0;
+  right: 1.6rem;
+  height: 14rem;
+  width: calc(14rem * var(--dhf-portrait-aspect-ratio, 1.5));
+  border-radius: 1.2rem 1.2rem 0 0;
+  z-index: 60;
+  overflow: hidden;
+  border: none;
+  box-shadow: 0 0.4rem 2rem rgba(0, 0, 0, 0.6);
+  background: transparent;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  container-type: inline-size;
+  pointer-events: none;
+}
+
+.rps-dhf-container.rps-dhf-avatar iframe {
+  border-radius: 1.2rem;
+  width: 100% !important;
+  /* 按完整宽高比（1:2）拉伸 iframe，容器 overflow:hidden 裁掉底部只露上半身 */
+  height: calc(100cqi / var(--dhf-full-aspect-ratio, 0.5)) !important;
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* 麦克风行：图标行 — 与字幕框等宽 */
+.rps-mic-row {
+  grid-area: target;
+  justify-self: stretch;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.rps-mic-row.hidden {
+  visibility: hidden;
+}
+
+/* 跳过按钮 — 已替换为图标，保留 hidden class */
+.rps-skip-btn {
+  display: none;
+}
+
+/* =================== 圆形状态图标 =================== */
+
+.rps-icon-btn {
+  width: 50px;
+  height: 50px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* 左侧麦克风图标：圆心对齐字幕框左边线 */
+.rps-mic-icon-btn {
+  margin-left: -25px;
+  overflow: visible;
+}
+
+/* 右侧状态图标：圆心对齐字幕框右边线 */
+.rps-status-icon-btn {
+  margin-left: auto;
+  margin-right: -25px;
+}
+
+.rps-icon-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transition: opacity 0.3s ease;
+}
+
+/* 麦克风图标：默认显示 idle，隐藏 active */
+.rps-mic-idle { opacity: 1; }
+.rps-mic-active-icon { opacity: 0; }
+
+/* 状态图标：默认显示 retry，隐藏 success */
+.rps-retry-icon { opacity: 1; }
+.rps-success-icon { opacity: 0; }
+
+/* mic-row 状态 → 切换左侧麦克风图标 */
+.rps-mic-row.rps-state-recording .rps-mic-idle { opacity: 0; }
+.rps-mic-row.rps-state-recording .rps-mic-active-icon { opacity: 1; }
+
+/* mic-row 状态 → 切换右侧状态图标 */
+.rps-mic-row.rps-state-success .rps-retry-icon { opacity: 0; }
+.rps-mic-row.rps-state-success .rps-success-icon { opacity: 1; }
+
+/* 右侧状态图标推到最右 */
+.rps-status-icon-btn {
+  margin-left: auto;
+}
+
+/* ── 录制中麦克风3层声波动画 ── */
+.rps-ripple-ring {
+  opacity: 0;
+  transform-origin: center;
+}
+
+.rps-mic-row.rps-state-recording .rps-ripple-1 {
+  animation: rps-ripple-expand 1.4s ease-out infinite;
+}
+.rps-mic-row.rps-state-recording .rps-ripple-2 {
+  animation: rps-ripple-expand 1.4s ease-out 0.35s infinite;
+}
+.rps-mic-row.rps-state-recording .rps-ripple-3 {
+  animation: rps-ripple-expand 1.4s ease-out 0.7s infinite;
+}
+
+@keyframes rps-ripple-expand {
+  0% { opacity: 0.8; r: 26; stroke-width: 2.5; }
+  60% { opacity: 0.4; r: 33; stroke-width: 1.5; }
+  100% { opacity: 0; r: 36; stroke-width: 0.5; }
+}
+
+/* ── 成功星光闪烁动画 ── */
+.rps-sparkle { opacity: 0; }
+
+.rps-mic-row.rps-state-success .rps-sparkle-1 {
+  animation: rps-sparkle-twinkle 1s ease-in-out 0.1s 3;
+}
+.rps-mic-row.rps-state-success .rps-sparkle-2 {
+  animation: rps-sparkle-twinkle 1s ease-in-out 0.4s 3;
+}
+.rps-mic-row.rps-state-success .rps-sparkle-3 {
+  animation: rps-sparkle-twinkle 1s ease-in-out 0.7s 3;
+}
+
+@keyframes rps-sparkle-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.5); }
+  50% { opacity: 1; transform: scale(1.5); }
+}
+
+/* 左上角返回首页图标 */
+.rps-home-icon {
+  position: absolute;
+  top: 1.2rem;
+  left: 1.2rem;
+  z-index: 50;
+  width: 4.8rem;
+  height: 4.8rem;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  outline: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  pointer-events: auto;
+}
+
+.rps-home-icon:hover,
+.rps-home-icon:focus {
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  outline: none;
+}
+
+/* 麦克风状态徽章 — 已替换为 SVG 图标 */
+.rps-mic-badge { display: none; }
+
+/* =================== 加载屏 =================== */
+
+.rps-loading-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--rps-bg);
+  z-index: 200;
+}
+
+/* =================== 倒计提示屏 =================== */
+
+.rps-countdown-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rps-bg);
+  z-index: 200;
+}
+
+.rps-countdown-text {
+  font-size: 3.6rem;
+  font-weight: bold;
+  color: #fff;
+  text-align: center;
+  animation: rps-countdown-pulse 1.2s ease-in-out infinite;
+}
+
+.rps-countdown-text.rps-countdown-go {
+  font-size: 6rem;
+  color: var(--rps-success);
+  animation: rps-countdown-pop 0.5s ease-out forwards;
+}
+
+@keyframes rps-countdown-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes rps-countdown-pop {
+  0% { opacity: 0; transform: scale(0.5); }
+  60% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ===========================================
+   响应式 — 竖屏（手机 portrait）
+   =========================================== */
+
+@media (orientation: portrait) {
+
+  /* ── 根字号修正：横屏 1280 基准在竖屏上太小，用 vw 重算 ── */
+  html {
+    font-size: 2.5vw !important; /* 375px → 9.4px, 414px → 10.4px */
+  }
+
+  /* ── 壳：竖屏下去掉 min-height:100vh 用自然流 ── */
+  .rps-shell {
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+  }
+
+  /* ── 游戏主屏：竖屏从上到下堆叠 ── */
+  .rps-screen {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── 视频区：竖屏占满 ── */
+  .rps-video-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── 字幕区：竖屏覆盖在视频底部 ── */
+  .rps-subtitle-area {
+    bottom: 1.2rem;
+    min-width: 80%;
+    max-width: 94%;
+    padding: 0.8rem 2rem 0.5rem;
+    grid-template-rows:
+      minmax(0, auto)
+      minmax(0, auto)
+      28px
+      minmax(0, auto)
+      minmax(0, auto)
+      minmax(0, auto);
+  }
+
+  .rps-phoneme-track {
+    height: 28px;
+  }
+
+  .rps-hud-panel {
+    min-width: 140px;
+    max-width: 160px;
+    font-size: 11px;
+  }
+
+  .rps-subtitle-text {
+    font-size: 1.8rem;
+    max-width: 98%;
+  }
+
+  .rps-sub-native {
+    font-size: 1.8rem;
+  }
+
+  .rps-sub-target,
+  .rps-sub-target-karaoke {
+    font-size: 1.8rem;
+  }
+
+  .rps-user-subtitle-text {
+    font-size: 1.6rem;
+  }
+
+  .rps-assistant-subtitle {
+    font-size: 1.4rem;
+  }
+
+  .rps-assistant-subtitle-text {
+    font-size: 1.4rem;
+  }
+
+  /* ── DHF 面板模式（介绍/加载阶段）：底部区域而非右侧 ── */
+  .rps-dhf-container.rps-dhf-panel {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 50vh;
+    height: 50dvh;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ── DHF 头像模式（播放/配音阶段）：底部全宽 ── */
+  .rps-dhf-container.rps-dhf-avatar {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    height: 30vh;
+    height: 30dvh;
+    border-radius: 0;
+    border: none;
+    box-shadow: 0 -0.4rem 2rem rgba(0, 0, 0, 0.6);
+    container-type: inline-size;
+  }
+
+  .rps-dhf-container.rps-dhf-avatar iframe {
+    border-radius: 0;
+    /* 竖屏下 iframe 也按完整宽高比拉伸裁剪 */
+    width: 100% !important;
+    height: calc(100cqi / var(--dhf-full-aspect-ratio, 0.5)) !important;
+    position: absolute !important;
+    top: 0;
+    left: 0;
+  }
+
+  /* ── 麦克风徽章：竖屏保持居中 ── */
+  .rps-mic-badge {
+    align-self: center;
+  }
+
+  /* ── 慢镜头提示：缩小 ── */
+  .rps-slowmo-pulse {
+    width: 5rem;
+    height: 5rem;
+  }
+
+  .rps-slowmo-text {
+    font-size: 1.6rem;
+  }
+
+  /* ── 状态提示 ── */
+  .rps-status-toast {
+    font-size: 1.8rem;
+    padding: 0.8rem 2rem;
+  }
+
+  /* ── 介绍屏 ── */
+  .rps-intro-screen {
+    padding: 2rem 1.5rem;
+    padding-bottom: 52vh; /* 留空间给底部 DHF 面板 */
+    justify-content: center;
+  }
+
+  .rps-intro-title {
+    font-size: 3rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .rps-intro-desc {
+    font-size: 1.6rem;
+    max-width: 90%;
+    margin-bottom: 2.5rem;
+    line-height: 2;
+  }
+
+  .rps-intro-start-btn {
+    font-size: 2rem;
+    padding: 1.2rem 4rem;
+  }
+
+  /* ── 结果屏 ── */
+  .rps-result-screen {
+    padding: 2rem 1.5rem;
+    padding-bottom: 52vh;
+    justify-content: center;
+  }
+
+  .rps-result-title {
+    font-size: 3rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .rps-result-stars {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .rps-result-stats {
+    font-size: 1.6rem;
+    margin-bottom: 2rem;
+  }
+
+  /* ── 加载屏 ── */
+  .rps-loading-screen {
+    padding-bottom: 52vh;
+    justify-content: center;
+  }
+
+  /* ── 倒计时 ── */
+  .rps-countdown-screen {
+    padding-bottom: 52vh;
+  }
+
+  .rps-countdown-text {
+    font-size: 2.8rem;
+  }
+
+  .rps-countdown-text.rps-countdown-go {
+    font-size: 4rem;
+  }
+}
+
+/* =================== 竖屏且较小屏幕（手机） =================== */
+
+@media (orientation: portrait) and (max-width: 480px) {
+
+  .rps-video-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .rps-subtitle-area {
+    bottom: 0.8rem;
+    min-width: 85%;
+    max-width: 96%;
+    padding: 0.6rem 1.2rem 0.4rem;
+    grid-template-rows:
+      minmax(0, auto)
+      minmax(0, auto)
+      24px
+      minmax(0, auto)
+      minmax(0, auto)
+      minmax(0, auto);
+  }
+
+  .rps-subtitle-text {
+    font-size: 1.5rem;
+  }
+
+  .rps-sub-native {
+    font-size: 1.6rem;
+  }
+
+  .rps-sub-target,
+  .rps-sub-target-karaoke {
+    font-size: 1.5rem;
+  }
+
+  .rps-dhf-container.rps-dhf-panel {
+    height: 45vh;
+    height: 45dvh;
+  }
+
+  .rps-dhf-container.rps-dhf-avatar {
+    height: 28vh;
+    height: 28dvh;
+  }
+
+  .rps-intro-screen {
+    padding-bottom: 48vh;
+  }
+
+  .rps-intro-title {
+    font-size: 2.4rem;
+  }
+
+  .rps-intro-desc {
+    font-size: 1.4rem;
+  }
+
+  .rps-result-screen {
+    padding-bottom: 48vh;
+  }
+
+  .rps-loading-screen {
+    padding-bottom: 48vh;
+  }
+
+  .rps-countdown-screen {
+    padding-bottom: 48vh;
+  }
+}

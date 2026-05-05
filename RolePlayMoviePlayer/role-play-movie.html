@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>角色扮演互动电影 — Role-Play Movie</title>
+
+  <!-- 游戏样式（来自 Vocabulary 影视配音秀） -->
+  <link rel="stylesheet" href="./css/style.css">
+
+  <!-- 角色选择 / 加载器 样式 -->
+  <link rel="stylesheet" href="./css/role-play.css">
+
+  <!-- 石化字幕字体：MedievalSharp (古典精致) + 备选 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&family=Uncial+Antiqua&display=swap" rel="stylesheet">
+
+  <!-- REM 自适应（必须在 CSS 之后、模块脚本之前）：设计稿 1280×800，1rem=10px -->
+  <script>
+    (function () {
+      var design = window.__gameDesign || {};
+      var DESIGN_W = design.width || 1280;
+      var DESIGN_H = design.height || 800;
+      var BASE_FONT = 10;
+      function update() {
+        var w = document.documentElement.clientWidth;
+        var h = document.documentElement.clientHeight;
+        var scale = Math.min(w / DESIGN_W, h / DESIGN_H);
+        document.documentElement.style.fontSize = (BASE_FONT * scale) + 'px';
+        document.documentElement.setAttribute('data-scale', scale.toFixed(4));
+      }
+      update();
+      var timer;
+      window.addEventListener('resize', function () {
+        clearTimeout(timer);
+        timer = setTimeout(update, 100);
+      });
+      window.__gameUpdateScale = update;
+    })();
+  </script>
+
+  <!-- KeepworkSDK（提供 YMLParser + DigitalHumanFrame + PersonalPageStore 等） -->
+  <script src="https://cdn.keepwork.com/sdk/keepworkSDK.iife.js?ver=20260501"></script>
+  <style>
+    /* ── 右上角登录/个人信息栏 ── */
+    .auth-bar {
+      position: fixed;
+      top: 0; right: 0;
+      z-index: 9999;
+      background: rgba(255,255,255,0.92);
+      border-bottom-left-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .auth-bar .auth-user {
+      color: #333;
+      font-weight: 600;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .auth-bar .auth-hint {
+      color: #409eff;
+      cursor: pointer;
+    }
+    .auth-bar .auth-hint:hover,
+    .auth-bar .auth-user:hover {
+      opacity: 0.8;
+    }
+
+    /* ── 手机竖屏：登录栏适配 ── */
+    @media (orientation: portrait) {
+      .auth-bar {
+        top: env(safe-area-inset-top, 0);
+        right: 0;
+        left: 0;
+        border-radius: 0;
+        padding: 8px 16px;
+        justify-content: flex-end;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      }
+      .auth-bar .auth-hint,
+      .auth-bar .auth-user {
+        font-size: 16px;
+        min-height: 44px;
+        min-width: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 8px;
+      }
+    }
+
+    /* ── 角色扮演电影模式：视频 + 底部黑色字幕区布局（用户回合时布局保持不变） ── */
+    .rp-movie-mode .rps-video-area {
+      height: 72%;
+    }
+    .rp-movie-mode .rps-video {
+      cursor: pointer;
+    }
+    /* Role-Play movie mode: the bottom subtitle panel is the ONLY subtitle UI.
+       Always hide the legacy in-video subtitle text / mic row / vocab subtitle
+       / overlay caption — the bottom panel renders the current line and per-word
+       DDR-style highlights via setCurrentDetails. */
+    .rp-movie-mode #subtitleArea,
+    .rp-movie-mode #vocSubtitleArea,
+    .rp-movie-mode #micRow,
+    .rp-movie-mode #overlayCaptionArea {
+      display: none !important;
+    }
+    /* HUD + special-effect overlays (score popups, judgment, sentence stamp /
+       diagnostic card, slow-mo flash) only appear during the user's turn — they
+       drive the visual feedback for scoring without re-introducing the old
+       subtitle-on-video panel. */
+    .rp-movie-mode:not(.rp-user-turn-active) #hudTL,
+    .rp-movie-mode:not(.rp-user-turn-active) #hudTR,
+    .rp-movie-mode:not(.rp-user-turn-active) #hudBL,
+    .rp-movie-mode:not(.rp-user-turn-active) #vocProgressBar,
+    .rp-movie-mode:not(.rp-user-turn-active) #judgmentLayer,
+    .rp-movie-mode:not(.rp-user-turn-active) #sentenceOverlay,
+    .rp-movie-mode:not(.rp-user-turn-active) #wordScoreLayer,
+    .rp-movie-mode:not(.rp-user-turn-active) #slowmoOverlay {
+      display: none !important;
+    }
+    /* DHF avatar: hidden when not in user turn (no AI needed); visible during user turn for judging */
+    .rp-movie-mode:not(.rp-user-turn-active) .rps-dhf-container { display: none !important; }
+    /* Hide vocab progress bar in this mode (replaced by scene timeline) */
+    .rp-movie-mode #vocProgressBar { display: none !important; }
+
+    /* ── 场景时间线（顶部覆盖在底部黑色面板上方） ── */
+    .rp-scene-timeline {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: 28%;
+      height: 56px;
+      background: #0c0c12;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 6px 14px 8px;
+      box-sizing: border-box;
+      z-index: 51;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    .rp-scene-timeline.hidden { display: none; }
+    .rp-st-readout {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.6);
+      font-family: ui-monospace, "Consolas", monospace;
+    }
+    .rp-st-track {
+      position: relative;
+      flex: 1;
+      background: #1a1a25;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 4px;
+      cursor: crosshair;
+      overflow: hidden;
+    }
+    .rp-st-scene {
+      position: absolute;
+      top: 2px; bottom: 2px;
+      background: #b266ff;
+      border-radius: 3px;
+      font-size: 11px;
+      line-height: 1;
+      color: #fff;
+      padding: 0 4px;
+      box-sizing: border-box;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
+      cursor: pointer;
+      opacity: 0.7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.12s, box-shadow 0.12s;
+    }
+    .rp-st-scene:hover { opacity: 1; }
+    .rp-st-scene.rp-st-active {
+      opacity: 1;
+      box-shadow: 0 0 0 2px #fff inset;
+      background: #ffd66b;
+      color: #1a1a25;
+      font-weight: 600;
+    }
+    .rp-st-cursor {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #ff5d5d;
+      pointer-events: none;
+      box-shadow: 0 0 8px rgba(255, 93, 93, 0.7);
+    }
+
+    .rp-bottom-panel {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 28%;
+      min-height: 180px;
+      background: #000;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      padding: 1.4rem 2.4rem 1rem;
+      z-index: 50;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      box-sizing: border-box;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .rp-bottom-panel.hidden { display: none; }
+
+    .rp-bp-list {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      gap: 0.5rem;
+      text-align: center;
+    }
+    .rp-bp-line {
+      font-size: 1.6rem;
+      line-height: 1.4;
+      opacity: 0.45;
+      transition: opacity 0.2s ease, font-size 0.2s ease;
+      max-width: 92%;
+    }
+    .rp-bp-current {
+      opacity: 1;
+      font-size: 2.2rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    .rp-bp-upcoming { color: #bbb; }
+    .rp-bp-current.rp-bp-player {
+      color: #ffd66b;
+      text-shadow: 0 0 14px rgba(255, 214, 107, 0.45);
+    }
+    .rp-bp-speaker {
+      color: #9bbeee;
+      margin-right: 0.5em;
+      font-weight: 500;
+    }
+
+    /* 角色扮演电影模式 — 用户回合：当前行逐词高亮 */
+    .rp-bp-w {
+      display: inline-block;
+      transition: color 0.18s ease, text-shadow 0.18s ease;
+    }
+    .rp-bp-w + .rp-bp-w { margin-left: 0.32em; }
+    .rp-bp-w-pending { color: rgba(255, 214, 107, 0.45); text-shadow: none; }
+    .rp-bp-w-active {
+      color: #fff;
+      text-shadow: 0 0 16px rgba(255, 214, 107, 0.95), 0 0 4px rgba(255, 255, 255, 0.6);
+    }
+    .rp-bp-w-matched {
+      color: #b6f8a4;
+      text-shadow: 0 0 12px rgba(110, 255, 130, 0.55);
+    }
+    .rp-bp-w-missed {
+      color: #ff9c9c;
+      text-decoration: line-through;
+      text-decoration-color: rgba(255, 120, 120, 0.7);
+      opacity: 0.85;
+    }
+    .rp-bp-empty {
+      opacity: 0.5;
+      font-size: 1.4rem;
+    }
+    .rp-bp-hint {
+      text-align: center;
+      font-size: 1.05rem;
+      color: rgba(255, 255, 255, 0.45);
+      margin-top: 0.5rem;
+      min-height: 1.2em;
+    }
+
+    /* 角色扮演电影模式 — 用户回合「跳过」按钮 */
+    .rp-skip-btn {
+      position: absolute;
+      right: 1.6rem;
+      bottom: 1.6rem;
+      z-index: 9500;
+      padding: 0.8rem 1.8rem;
+      border-radius: 999px;
+      border: 1.5px solid #ffd66b;
+      background: rgba(20, 10, 15, 0.78);
+      color: #ffd66b;
+      font-size: 1.4rem;
+      font-weight: 600;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      cursor: pointer;
+      transition: background 0.18s, transform 0.1s;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: none;
+    }
+    .rp-skip-btn:hover { background: rgba(255, 214, 107, 0.18); }
+    .rp-skip-btn:active { transform: scale(0.96); }
+    .rp-movie-mode.rp-user-turn-active .rp-skip-btn { display: block; }
+
+    /* ── 角色扮演加载器 / 选角 浮层 ── */
+    .rp-loader-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      background: linear-gradient(135deg, #1e1b3a 0%, #2d2454 100%);
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .rp-loader-overlay.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <!-- 右上角登录/个人信息栏 -->
+  <div class="auth-bar" id="authBar">
+    <span class="auth-hint" id="authBarStatus">登录</span>
+  </div>
+
+  <!-- 角色扮演加载器/选角浮层（bootstrap 注入内容） -->
+  <div class="rp-loader-overlay" id="rpLoaderOverlay"></div>
+
+  <div class="rps-shell" id="gameShell" data-testid="game-shell">
+    <!-- 流程屏容器 -->
+    <div id="flowRoot"></div>
+
+    <!-- 游戏主屏 -->
+    <div class="rps-screen hidden" id="gameScreen" data-testid="game-screen">
+      <!-- 左上角返回首页 -->
+      <button class="rps-home-icon" id="homeDubBtn" title="返回首页">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+
+      <div class="rps-video-area" id="videoArea">
+        <!-- 视频播放器 -->
+        <video class="rps-video" id="mainVideo" playsinline webkit-playsinline x5-video-player-type="h5-page" x5-playsinline preload="auto">
+          您的浏览器不支持视频播放
+        </video>
+
+        <!-- 点击播放遮罩（安卓浏览器 autoplay 受限时显示） -->
+        <div class="rps-tap-play-overlay hidden" id="tapPlayOverlay">
+          <button class="rps-tap-play-btn" id="tapPlayBtn">
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="white"><polygon points="22,14 22,50 50,32"/></svg>
+            <span>点击播放</span>
+          </button>
+        </div>
+
+        <!-- 慢镜头遮罩 -->
+        <div class="rps-slowmo-overlay hidden" id="slowmoOverlay">
+          <div class="rps-slowmo-pulse"></div>
+          <div class="rps-slowmo-text">🎤 轮到你了！</div>
+        </div>
+
+        <!-- 状态提示浮层 -->
+        <div class="rps-status-toast hidden" id="statusToast" data-testid="status-toast">
+          <span id="statusToastText"></span>
+        </div>
+
+        <!-- 逐词DDR判定弹出层 -->
+        <div class="rps-judgment-layer" id="judgmentLayer"></div>
+        <!-- 句子级反馈层：盖章 + 诊断卡 -->
+        <div class="rps-sentence-overlay" id="sentenceOverlay">
+          <div class="rps-stamp-layer" id="stampLayer"></div>
+          <div class="rps-diagnostic-layer" id="diagnosticLayer"></div>
+        </div>
+
+        <!-- HUD 四角系统 (视频叠加层) -->
+        <div class="rps-hud-panel rps-hud-tl" id="hudTL" style="display:none">
+          <div class="rps-bar-wrapper">
+            <div class="rps-bar-label">🧪 法力</div>
+            <div class="rps-bar-track"><div class="rps-bar-fill rps-bar-mana" id="manaBar" style="width:100%"></div></div>
+            <div class="rps-bar-value" id="manaValue">100/100</div>
+          </div>
+          <div class="rps-bar-wrapper">
+            <div class="rps-bar-label">❤️ 生命</div>
+            <div class="rps-bar-track"><div class="rps-bar-fill rps-bar-hp" id="hpBar" style="width:100%"></div></div>
+            <div class="rps-bar-value" id="hpValue">100/100</div>
+          </div>
+        </div>
+
+        <div class="rps-hud-panel rps-hud-tr" id="hudTR">
+          <div class="rps-score-hud" id="scoreHud">
+            <div class="rps-score-hud-label">SCORE</div>
+            <div class="rps-score-hud-value" id="scoreHudValue">0</div>
+            <div class="rps-sentence-score" id="sentenceScore"></div>
+          </div>
+          <div class="rps-hud-divider"></div>
+          <div class="rps-hud-row"><span class="rps-coin-icon">💰</span> <span class="rps-coin-value" id="coinValue">0</span></div>
+          <div class="rps-hud-row"><span>🔥</span> Combo <span class="rps-combo-hud-value" id="comboHudValue">×0</span></div>
+          <div class="rps-hud-row"><span>⭐</span> 倍率 <span class="rps-boost-value" id="boostHudValue">×1.0</span></div>
+        </div>
+
+        <div class="rps-hud-panel rps-hud-bl" id="hudBL">
+          <div class="rps-quest-chapter" id="questChapter">📖 角色扮演</div>
+          <div class="rps-quest-desc" id="questDesc">🎯 完成所有配音句</div>
+          <div class="rps-quest-progress-row">
+            <div class="rps-quest-progress"><div class="rps-quest-fill" id="questFill" style="width:0%"></div></div>
+            <span id="questCount">0/0</span>
+          </div>
+        </div>
+
+        <!-- Step 2 Overlay 浮层（角色扮演电影模式不使用，但保留 DOM 以兼容 controller） -->
+        <div class="rps-overlay-caption-area hidden" id="overlayCaptionArea" data-stage="idle">
+          <div class="rps-overlay-caption-word" id="overlayCaptionWord"></div>
+          <div class="rps-overlay-caption-ipa" id="overlayCaptionIpa"></div>
+          <div class="rps-overlay-caption-zh hidden" id="overlayCaptionZh"></div>
+        </div>
+
+        <!-- 词汇跟读模式 — 视频进度条（兼容） -->
+        <div class="voc-progress-bar hidden" id="vocProgressBar">
+          <button class="voc-pb-play" id="vocPbPlay" title="播放/暂停">
+            <svg class="voc-pb-icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+            <svg class="voc-pb-icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
+          </button>
+          <span class="voc-pb-time" id="vocPbTime">0:00</span>
+          <div class="voc-pb-track" id="vocPbTrack">
+            <div class="voc-pb-filled" id="vocPbFilled"></div>
+            <div class="voc-pb-thumb" id="vocPbThumb"></div>
+          </div>
+          <span class="voc-pb-duration" id="vocPbDuration">0:00</span>
+          <div class="voc-pb-speed-wrap" id="vocPbSpeedWrap">
+            <button class="voc-pb-speed" id="vocPbSpeed" title="播放速度">1x</button>
+            <div class="voc-pb-speed-menu hidden" id="vocPbSpeedMenu">
+              <div class="voc-pb-speed-option" data-rate="0.5">0.5x</div>
+              <div class="voc-pb-speed-option" data-rate="0.75">0.75x</div>
+              <div class="voc-pb-speed-option selected" data-rate="1">1x</div>
+              <div class="voc-pb-speed-option" data-rate="1.25">1.25x</div>
+              <div class="voc-pb-speed-option" data-rate="1.5">1.5x</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 全屏反馈层：逐词分数 / Combo 浮标 -->
+      <div class="rps-feedback-layer" id="wordScoreLayer"></div>
+
+      <!-- 字幕区 — 五层布局 -->
+      <div class="rps-subtitle-area" id="subtitleArea" data-testid="subtitle-area">
+        <div class="rps-mic-row hidden" id="micRow">
+          <div class="rps-icon-btn rps-mic-icon-btn" id="micIconBtn">
+            <svg class="rps-icon-svg rps-mic-idle" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="30" cy="30" r="27" fill="#4a4550" stroke="url(#micRoseGrad)" stroke-width="2.5"/>
+              <defs><linearGradient id="micRoseGrad" x1="0" y1="0" x2="60" y2="60"><stop offset="0%" stop-color="#d4a0a8"/><stop offset="100%" stop-color="#c08890"/></linearGradient></defs>
+              <path d="M30 16c-2.8 0-5 2.2-5 5v8c0 2.8 2.2 5 5 5s5-2.2 5-5v-8c0-2.8-2.2-5-5-5z" fill="#e8e0e2"/>
+              <path d="M22 28v1c0 4.4 3.6 8 8 8s8-3.6 8-8v-1" stroke="#e8e0e2" stroke-width="2" stroke-linecap="round"/>
+              <line x1="30" y1="37" x2="30" y2="42" stroke="#e8e0e2" stroke-width="2" stroke-linecap="round"/>
+              <line x1="26" y1="42" x2="34" y2="42" stroke="#e8e0e2" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <svg class="rps-icon-svg rps-mic-active-icon" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle class="rps-ripple-ring rps-ripple-1" cx="36" cy="36" r="26" stroke="rgba(220,100,110,0.6)" stroke-width="2" fill="none"/>
+              <circle class="rps-ripple-ring rps-ripple-2" cx="36" cy="36" r="26" stroke="rgba(220,100,110,0.5)" stroke-width="1.5" fill="none"/>
+              <circle class="rps-ripple-ring rps-ripple-3" cx="36" cy="36" r="26" stroke="rgba(220,100,110,0.4)" stroke-width="1.2" fill="none"/>
+              <circle cx="36" cy="36" r="24" fill="rgba(220,170,175,0.85)" stroke="rgba(160,90,100,0.6)" stroke-width="2"/>
+              <path d="M36 22c-2.8 0-5 2.2-5 5v8c0 2.8 2.2 5 5 5s5-2.2 5-5v-8c0-2.8-2.2-5-5-5z" fill="#dc3545"/>
+              <path d="M28 34v1c0 4.4 3.6 8 8 8s8-3.6 8-8v-1" stroke="#dc3545" stroke-width="2" stroke-linecap="round"/>
+              <line x1="36" y1="43" x2="36" y2="48" stroke="#dc3545" stroke-width="2" stroke-linecap="round"/>
+              <line x1="32" y1="48" x2="40" y2="48" stroke="#dc3545" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="rps-icon-btn rps-status-icon-btn" id="statusIconBtn">
+            <svg class="rps-icon-svg rps-retry-icon" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="30" cy="30" r="27" fill="#555" stroke="#777" stroke-width="2"/>
+              <path d="M38 22a12 12 0 1 0 2.5 13" stroke="#aaa" stroke-width="3" stroke-linecap="round" fill="none"/>
+              <polygon points="41,19 41,26 34,23" fill="#aaa"/>
+            </svg>
+            <svg class="rps-icon-svg rps-success-icon" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="30" cy="30" r="27" fill="url(#goldGrad)" stroke="url(#goldStroke)" stroke-width="2"/>
+              <defs>
+                <linearGradient id="goldGrad" x1="10" y1="10" x2="55" y2="55"><stop offset="0%" stop-color="#f5d060"/><stop offset="100%" stop-color="#d4a020"/></linearGradient>
+                <linearGradient id="goldStroke" x1="0" y1="0" x2="60" y2="60"><stop offset="0%" stop-color="#f0c840"/><stop offset="100%" stop-color="#c89018"/></linearGradient>
+              </defs>
+              <polyline points="20,30 27,37 40,22" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <circle class="rps-sparkle rps-sparkle-1" cx="48" cy="12" r="1.5" fill="#fff9c4"/>
+              <circle class="rps-sparkle rps-sparkle-2" cx="52" cy="18" r="1" fill="#fff9c4"/>
+              <circle class="rps-sparkle rps-sparkle-3" cx="46" cy="8" r="0.8" fill="#fff9c4"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="rps-subtitle-text" id="subtitleText"></div>
+        <div class="rps-phoneme-track" id="phonemeTrack"></div>
+        <div class="rps-sub-ipa" id="subIpa"></div>
+        <div class="rps-sub-preview" id="subPreview"></div>
+
+        <div class="rps-user-subtitle hidden" id="userSubtitle" data-testid="user-subtitle">
+          <span class="rps-user-subtitle-label">我:</span>
+          <span class="rps-user-subtitle-text" id="userSubtitleText"></span>
+        </div>
+        <div class="rps-assistant-subtitle" id="assistantSubtitle" data-testid="assistant-subtitle">
+          <span class="rps-assistant-subtitle-label">助手:</span>
+          <span class="rps-assistant-subtitle-text" id="assistantSubtitleText"></span>
+        </div>
+      </div>
+
+      <div class="voc-subtitle-area hidden" id="vocSubtitleArea">
+        <div class="voc-mic-indicator hidden" id="vocMicIndicator">
+          <div class="voc-mic-dot"></div>
+          <span class="voc-mic-label">跟读中</span>
+        </div>
+        <div class="voc-subtitle-target" id="vocSubtitleTarget"></div>
+        <div class="voc-subtitle-zh" id="vocSubtitleZh"></div>
+      </div>
+
+      <!-- 角色扮演电影模式：场景时间线 -->
+      <div class="rp-scene-timeline hidden" id="rpSceneTimeline"></div>
+
+      <!-- 角色扮演电影模式：底部黑色字幕区（由 RolePlayBottomPanel 渲染） -->
+      <div class="rp-bottom-panel hidden" id="rpBottomPanel"></div>
+
+      <!-- 角色扮演电影模式：用户回合「跳过」按钮（仅在 .rp-user-turn-active 时显示） -->
+      <button class="rp-skip-btn" id="rpSkipBtn" type="button">跳过 ›</button>
+    </div>
+
+    <!-- DigitalHumanFrame 容器 -->
+    <div class="rps-dhf-container rps-dhf-panel" id="dhfContainer"></div>
+  </div>
+
+  <!-- Role-Play Movie 引导脚本（先选片+选角，再加载 game.js） -->
+  <script type="module" src="./js/role-play-bootstrap.js"></script>
+
+  <!-- 登录 / Profile 逻辑 -->
+  <script type="module">
+    const sdk = window.keepwork;
+    if (!sdk) { console.warn('[AuthBar] keepwork SDK not found'); }
+
+    const barStatus = document.getElementById('authBarStatus');
+
+    function updateAuthBar() {
+      if (!sdk) return;
+      if (sdk.token && sdk.user) {
+        barStatus.className = 'auth-user';
+        barStatus.textContent = sdk.user.nickname || sdk.user.username || '已登录';
+      } else if (sdk.token) {
+        barStatus.className = 'auth-user';
+        barStatus.textContent = '已登录';
+      } else {
+        barStatus.className = 'auth-hint';
+        barStatus.textContent = '登录';
+      }
+    }
+
+    if (sdk && sdk.token) {
+      try {
+        await sdk.getUserProfile({ forceRefresh: true });
+      } catch (e) {
+        console.warn('[AuthBar] Failed to load profile:', e.message);
+      }
+    }
+    updateAuthBar();
+
+    barStatus.addEventListener('click', async () => {
+      if (!sdk) return;
+      if (sdk.token) {
+        try {
+          const result = await sdk.showProfileWindow();
+          if (result && result.action === 'logout') {
+            console.log('[AuthBar] Signed out via ProfileWindow');
+          }
+          if (sdk.token) {
+            await sdk.getUserProfile({ forceRefresh: true });
+          }
+        } catch (e) {
+          console.warn('[AuthBar] ProfileWindow error:', e.message);
+        }
+      } else {
+        try {
+          await sdk.showLoginWindow();
+          await sdk.getUserProfile({ forceRefresh: true });
+        } catch (e) {
+          console.warn('[AuthBar] Login cancelled or failed:', e.message);
+        }
+      }
+      updateAuthBar();
+    });
+  </script>
+</body>
+</html>
