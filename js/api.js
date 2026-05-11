@@ -8,6 +8,27 @@ import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, u
 import { recordLLMCall, recordImageCall, recordVideoCall, updateVideoCallUsage } from './stats.js';
 import { getGlobalPromptPreset, getGlobalVideoModel } from './global_settings.js';
 
+/**
+ * Save a generated video to local mode storage (if applicable) and surface failures
+ * to the task log + UI so silent download failures are visible. Never throws.
+ */
+function saveVideoLocallyWithFeedback(proj, short, taskId, videoUrl, filename) {
+    saveAssetToLocal(proj, videoUrl, 'videos', filename).then(res => {
+        if (!res || res.skipped) return;
+        if (res.ok) {
+            short.localVideoPath = res.localPath;
+            short.localSaveError = null;
+            updateTaskLogEntry(proj, taskId, { localSave: 'ok', localPath: res.localPath });
+        } else {
+            short.localSaveError = res.error || '本地保存失败';
+            updateTaskLogEntry(proj, taskId, { localSave: 'failed', localSaveError: short.localSaveError });
+            showToast(`短片 #${short.order} 视频本地保存失败: ${short.localSaveError}`, 'error');
+        }
+    }).catch(e => {
+        console.warn('[api] saveVideoLocallyWithFeedback unexpected error:', e);
+    });
+}
+
 /** Resolve prompt preset: project-level > global setting */
 function getProjectPromptPreset(project) {
     return project?.settings?.promptPreset || getGlobalPromptPreset();
@@ -31,8 +52,18 @@ function stripThinkingForJson(text) {
 function generateTempId() { return 'tmpImg_' + crypto.randomUUID().replace(/-/g, ''); }
 
 function sanitizeAssetSegment(value, fallback = 'asset') {
+    // ASCII-safe segment for git/repo paths and upload keys (Qiniu, PersonalPageStore).
+    // Non-ASCII (e.g. Chinese names) is collapsed to "-" — combine with the id-suffix
+    // helper below to keep distinct user-named items from colliding into one segment.
     const cleaned = String(value || fallback).trim().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     return cleaned || fallback;
+}
+
+/** Build a collision-resistant segment by appending a short id tag to the name. */
+function sanitizeAssetSegmentWithId(name, id, fallback = 'asset') {
+    const stem = sanitizeAssetSegment(name, fallback);
+    const idTag = String(id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6);
+    return idTag ? `${stem}-${idTag}` : stem;
 }
 
 function detectExtension(fileName, mimeType, fallback = 'bin') {
@@ -107,6 +138,87 @@ async function saveBlobAsset(project, relativePath, blob, commitMessage) {
     const dataUrl = await blobToDataUrl(blob);
     const { base64 } = splitDataUrl(dataUrl);
     return await saveBase64Asset(project, relativePath, base64, commitMessage);
+}
+
+// ---- Video Frame Extraction (issue #8: auto-capture first/last frame) ----
+function _captureVideoFrame(videoUrl, atSeconds) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.crossOrigin = 'anonymous';
+        video.preload = 'auto';
+        video.muted = true;
+        video.playsInline = true;
+        let settled = false;
+        const cleanup = () => { try { video.src = ''; video.load(); } catch {} };
+        const fail = (err) => { if (settled) return; settled = true; cleanup(); reject(err); };
+        const tryCapture = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 1280;
+                canvas.height = video.videoHeight || 720;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    if (!blob) return reject(new Error('toBlob returned null (canvas tainted?)'));
+                    resolve(blob);
+                }, 'image/jpeg', 0.9);
+            } catch (err) {
+                fail(err);
+            }
+        };
+        video.addEventListener('loadedmetadata', () => {
+            const target = atSeconds < 0
+                ? Math.max(0, (video.duration || 0) + atSeconds)
+                : Math.min(atSeconds, Math.max(0, (video.duration || 0) - 0.05));
+            try { video.currentTime = target; } catch (err) { fail(err); }
+        });
+        video.addEventListener('seeked', tryCapture, { once: true });
+        video.addEventListener('error', () => fail(new Error('video load error')));
+        // Hard timeout — don't hang the polling loop forever.
+        setTimeout(() => fail(new Error('frame capture timeout')), 15000);
+        video.src = videoUrl;
+    });
+}
+
+/**
+ * Extract first and last frames from a generated video and upload them to the
+ * personal CDN via CloudDrive (window.keepwork.cloudDrive). Sets
+ * short.firstFrameUrl / short.lastFrameUrl on success. Best-effort: any failure
+ * (CORS, decode, network) is logged and swallowed so it never breaks the
+ * polling pipeline.
+ */
+export async function extractAndSaveVideoKeyframes(project, short, videoUrl) {
+    if (!videoUrl || !project || !short) return;
+    if (short.firstFrameUrl && short.lastFrameUrl) return; // already populated
+    const cloudDrive = window.keepwork?.cloudDrive;
+    if (!cloudDrive) {
+        console.warn('[api] extractAndSaveVideoKeyframes: window.keepwork.cloudDrive unavailable');
+        return;
+    }
+    const projectKey = sanitizeAssetSegment(project?.title, 'project');
+    const shortKey = `${String(short.order || 0).padStart(3, '0')}-${sanitizeAssetSegment(short.id, 'short')}`;
+    const tasks = [];
+    if (!short.firstFrameUrl) {
+        tasks.push(['firstFrameUrl', 0, 'first']);
+    }
+    if (!short.lastFrameUrl) {
+        tasks.push(['lastFrameUrl', -0.05, 'last']);
+    }
+    for (const [field, at, label] of tasks) {
+        try {
+            const blob = await _captureVideoFrame(videoUrl, at);
+            const filename = `${projectKey}-${shortKey}-${label}.jpg`;
+            const file = new File([blob], filename, { type: 'image/jpeg' });
+            const result = await cloudDrive.uploadTempFile(file, { filename, expire: 180 });
+            if (result?.url) short[field] = result.url;
+            else throw new Error('CloudDrive.uploadTempFile returned no url');
+        } catch (err) {
+            console.warn(`[api] extract ${label} frame failed for shot #${short.order}:`, err?.message || err);
+        }
+    }
 }
 
 export async function uploadTempImage(file) {
@@ -404,13 +516,35 @@ export function getRegeneratePrompt(nodeType, project, nodeId) {
                 const pr = p.props.find(x => x.id === pid);
                 return pr?.name;
             }).filter(Boolean).join(', ');
-            return addLang(fillPromptTemplate(getPrompt('regenerateShort', pp), {
+            // Build neighbor / current shot context for continuity (issue #1).
+            const sortedShorts = [...(p.shorts || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+            const idx = sortedShorts.findIndex(x => x.id === nodeId);
+            const fmtNeighbor = (s) => {
+                if (!s) return '(none)';
+                const sc = p.scenes.find(x => x.id === s.sceneId);
+                const promptText = (s.prompt || '').slice(0, 200);
+                return `#${s.order} [scene: ${sc?.name || 'none'}] ${promptText}`;
+            };
+            const prevShot = idx > 0 ? sortedShorts[idx - 1] : null;
+            const nextShot = idx >= 0 && idx < sortedShorts.length - 1 ? sortedShorts[idx + 1] : null;
+            const baseTpl = addLang(fillPromptTemplate(getPrompt('regenerateShort', pp), {
                 synopsis: p.synopsis, characters: charsStr, props: propsStr, scenes: scenesStr,
                 order: sh?.order, sceneName: scene?.name || '(none)',
                 shortCharacters: shortChars || '(none)',
                 shortProps: shortProps || '(none)',
                 ...sv,
             }));
+            const continuityBlock =
+                `\n\n---\n# Current shot (preserve intent — only refine / enrich, do NOT replace the action):\n` +
+                `Prompt: ${sh?.prompt || '(empty)'}\n` +
+                (sh?.dialogue ? `Dialogue: ${sh.dialogue}\n` : '') +
+                (sh?.narration ? `Narration: ${sh.narration}\n` : '') +
+                `\n# Neighboring shots (for continuity — do NOT copy them):\n` +
+                `Previous: ${fmtNeighbor(prevShot)}\n` +
+                `Next: ${fmtNeighbor(nextShot)}\n` +
+                `\nThe regenerated prompt MUST keep the same dramatic beat as the current shot, ` +
+                `flow naturally from the previous shot, and lead into the next shot.`;
+            return baseTpl + continuityBlock;
         }
         case 'characters-group':
             return addLang(fillPromptTemplate(getPrompt('regenerateAllCharacters', pp), {
@@ -473,6 +607,63 @@ function splitBatches(items, size) {
     return batches;
 }
 
+/**
+ * Build the actual user messages that will be sent to the LLM, batch by batch (issue #4).
+ * Used by UI modals to show users exactly what context the model receives,
+ * not just the editable system prompt. Returns an array of { batchLabel, userMsg }.
+ *
+ * type: 'characters' | 'scenes' | 'shots'
+ */
+export function buildEnhanceUserMsgPreview(project, type) {
+    const out = [];
+    if (type === 'characters') {
+        const batches = splitBatches(project.characters || [], ENHANCE_BATCH_SIZE);
+        batches.forEach((batch, bi) => {
+            const batchLabel = batches.length > 1 ? `[批次 ${bi + 1}/${batches.length}] ` : '';
+            const batchCharsWithIds = batch.map(c => `[id:${c.id}] ${c.name}: ${c.description}`).join('\n');
+            out.push({
+                batchLabel,
+                userMsg:
+                    `Here are the current characters to enhance. Each line is prefixed with a stable [id:...] tag — ` +
+                    `you MUST include the same "id" field (verbatim, without the "id:" prefix or brackets) for every ` +
+                    `character object you return so updates can be applied safely. Do not invent new ids.\n\n` +
+                    `${batchCharsWithIds}`,
+            });
+        });
+    } else if (type === 'scenes') {
+        const batches = splitBatches(project.scenes || [], ENHANCE_BATCH_SIZE);
+        batches.forEach((batch, bi) => {
+            const batchLabel = batches.length > 1 ? `[批次 ${bi + 1}/${batches.length}] ` : '';
+            const batchScenesWithIds = batch.map(s => `[id:${s.id}] ${s.name}: ${s.description}`).join('\n');
+            out.push({
+                batchLabel,
+                userMsg:
+                    `Here are the current scenes to enhance. Each line is prefixed with a stable [id:...] tag — ` +
+                    `you MUST include the same "id" field (verbatim, without the "id:" prefix or brackets) for every ` +
+                    `scene object you return so updates can be applied safely. Do not invent new ids.\n\n` +
+                    `${batchScenesWithIds}`,
+            });
+        });
+    } else if (type === 'shots') {
+        const fmt = (s) => {
+            const scene = project.scenes.find(sc => sc.id === s.sceneId);
+            const chars = (s.characterIds || []).map(cid => project.characters.find(c => c.id === cid)?.name).filter(Boolean);
+            const props = (s.propIds || []).map(pid => project.props.find(p => p.id === pid)?.name).filter(Boolean);
+            return `#${s.order} [scene: ${scene?.name || 'none'}] [chars: ${chars.join(', ') || 'none'}] [props: ${props.join(', ') || 'none'}] prompt: ${s.prompt} (${s.duration}s)`;
+        };
+        const batches = splitBatches(project.shorts || [], ENHANCE_BATCH_SIZE);
+        batches.forEach((batch, bi) => {
+            const batchLabel = batches.length > 1 ? `[批次 ${bi + 1}/${batches.length}] ` : '';
+            const batchShortsStr = batch.map(fmt).join('\n');
+            out.push({
+                batchLabel,
+                userMsg: `Here are the current shorts to enhance:\n\n${batchShortsStr}`,
+            });
+        });
+    }
+    return out;
+}
+
 function getStyleVars(project) {
     const preset = getStylePreset(project.settings?.stylePreset);
     const customSuffix = project.settings?.customStyleSuffix || '';
@@ -527,13 +718,19 @@ export async function enhanceCharacters(project, onChunk, customPrompt) {
         if (onChunk) onChunk(`${batchLabel}正在增强 ${batch.map(c => c.name).join(', ')}...`);
 
         const batchCharsStr = batch.map(c => `${c.name}: ${c.description}`).join('\n');
+        // Include stable ids so the LLM can echo them back for safe backfill (issue #5).
+        const batchCharsWithIds = batch.map(c => `[id:${c.id}] ${c.name}: ${c.description}`).join('\n');
         const prompt = customPrompt || (fillPromptTemplate(getPrompt('enhanceCharacters', pp), {
             synopsis: project.synopsis || '',
             script: (project.script || '').slice(0, 2000),
             characters: batchCharsStr,
             ...getStyleVars(project),
         }) + langInstr);
-        const userMsg = `Here are the current characters to enhance:\n\n${batchCharsStr}`;
+        const userMsg =
+            `Here are the current characters to enhance. Each line is prefixed with a stable [id:...] tag — ` +
+            `you MUST include the same "id" field (verbatim, without the "id:" prefix or brackets) for every ` +
+            `character object you return so updates can be applied safely. Do not invent new ids.\n\n` +
+            `${batchCharsWithIds}`;
         const result = await llmChatStream(prompt, userMsg, (text) => {
             if (onChunk) onChunk(`${batchLabel}${text}`);
         });
@@ -569,13 +766,19 @@ export async function enhanceScenes(project, onChunk, customPrompt) {
         if (onChunk) onChunk(`${batchLabel}正在增强 ${batch.map(s => s.name).join(', ')}...`);
 
         const batchScenesStr = batch.map(s => `${s.name}: ${s.description}`).join('\n');
+        // Include stable ids so the LLM can echo them back for safe backfill (issue #6).
+        const batchScenesWithIds = batch.map(s => `[id:${s.id}] ${s.name}: ${s.description}`).join('\n');
         const prompt = customPrompt || (fillPromptTemplate(getPrompt('enhanceScenes', pp), {
             synopsis: project.synopsis || '',
             script: (project.script || '').slice(0, 2000),
             scenes: batchScenesStr,
             ...getStyleVars(project),
         }) + langInstr);
-        const userMsg = `Here are the current scenes to enhance:\n\n${batchScenesStr}`;
+        const userMsg =
+            `Here are the current scenes to enhance. Each line is prefixed with a stable [id:...] tag — ` +
+            `you MUST include the same "id" field (verbatim, without the "id:" prefix or brackets) for every ` +
+            `scene object you return so updates can be applied safely. Do not invent new ids.\n\n` +
+            `${batchScenesWithIds}`;
         const result = await llmChatStream(prompt, userMsg, (text) => {
             if (onChunk) onChunk(`${batchLabel}${text}`);
         }, '增强场景');
@@ -1008,8 +1211,65 @@ function findParallelTask(proj, taskId) {
     return null;
 }
 
+// Polling guards: prevent stuck "generating" UI when network/API persistently fails.
+// We do NOT enforce a wall-clock timeout — some video tasks legitimately take hours.
+// Long-running tasks are surfaced as warnings (see views.js project-resume path) so
+// the user can decide whether to keep waiting or stop them.
+const POLL_MAX_CONSECUTIVE_ERRORS = 6;     // ~1 minute of consecutive failures (6 * 10s)
+
 export function startPolling(taskId, projectId, onUpdate) {
     if (state.pollingIntervals[taskId]) return;
+    let consecutiveErrors = 0;
+
+    const failTask = async (reason) => {
+        try {
+            const proj = state.currentProject?.id === projectId ? state.currentProject : null;
+            if (!proj) { stopPolling(taskId); return; }
+            const short = proj.shorts.find(s => s.taskId === taskId);
+            const parallelMatch = !short ? findParallelTask(proj, taskId) : null;
+            if (parallelMatch) {
+                const { short: pShort, task: pTask } = parallelMatch;
+                pTask.status = 'failed';
+                pTask.error = reason;
+                if (proj.videoGenUsage) {
+                    proj.videoGenUsage.failedTasks = (proj.videoGenUsage.failedTasks || 0) + 1;
+                    const detail = proj.videoGenUsage.details?.find(d => d.taskId === taskId);
+                    if (detail) { detail.status = 'failed'; detail.completedAt = new Date().toISOString(); detail.error = reason; }
+                }
+                const allDone = pShort.parallelTasks.every(t => t.status === 'succeeded' || t.status === 'failed');
+                const succeededCount = pShort.parallelTasks.filter(t => t.status === 'succeeded').length;
+                if (allDone && pShort.status !== 'succeeded') {
+                    pShort.status = succeededCount > 0 ? 'succeeded' : 'failed';
+                    if (pShort.status === 'failed' && !pShort.error) pShort.error = reason;
+                }
+                stopPolling(taskId);
+                updateTaskLogEntry(proj, taskId, { status: 'failed', error: reason });
+                showToast(`短片 #${pShort.order} 变体生成中断: ${reason}`, 'error');
+                if (onUpdate) await onUpdate(proj, pShort);
+            } else if (short) {
+                short.status = 'failed';
+                short.error = reason;
+                short.taskId = null;
+                if (proj.videoGenUsage) {
+                    proj.videoGenUsage.failedTasks = (proj.videoGenUsage.failedTasks || 0) + 1;
+                    const detail = proj.videoGenUsage.details?.find(d => d.taskId === taskId);
+                    if (detail) { detail.status = 'failed'; detail.completedAt = new Date().toISOString(); detail.error = reason; }
+                    updateVideoCallUsage(taskId, { success: false, error: reason });
+                }
+                stopPolling(taskId);
+                updateTaskLogEntry(proj, taskId, { status: 'failed', error: reason });
+                showToast(`短片 #${short.order} 生成中断: ${reason}`, 'error');
+                if (onUpdate) await onUpdate(proj, short);
+            } else {
+                stopPolling(taskId);
+                updateTaskLogEntry(proj, taskId, { status: 'failed', error: reason });
+            }
+        } catch (e) {
+            console.error('[api] failTask error:', e);
+            stopPolling(taskId);
+        }
+    };
+
     const poll = async () => {
         try {
             const proj = state.currentProject?.id === projectId ? state.currentProject : null;
@@ -1065,7 +1325,10 @@ export function startPolling(taskId, projectId, onUpdate) {
                     }
                     stopPolling(taskId);
                     updateTaskLogEntry(proj, taskId, { status: 'succeeded', videoUrl: data.videoUrl });
-                    saveAssetToLocal(proj, data.videoUrl, 'videos', `shot_${pShort.order}_p${pTask.variantIndex}_video.mp4`).catch(() => {});
+                    saveVideoLocallyWithFeedback(proj, pShort, taskId, data.videoUrl, `shot_${pShort.order}_p${pTask.variantIndex}_video.mp4`);
+                    // Best-effort: auto-capture first/last frames so neighboring shots can
+                    // continue from each other (issue #8). Never block polling on failure.
+                    extractAndSaveVideoKeyframes(proj, pShort, data.videoUrl).catch(() => {});
                     // Check if all parallel tasks done
                     const allDone = pShort.parallelTasks.every(t => t.status === 'succeeded' || t.status === 'failed');
                     const succeededCount = pShort.parallelTasks.filter(t => t.status === 'succeeded').length;
@@ -1129,8 +1392,11 @@ export function startPolling(taskId, projectId, onUpdate) {
                 }
                 stopPolling(taskId);
                 updateTaskLogEntry(proj, taskId, { status: 'succeeded', videoUrl: data.videoUrl });
-                // Save to local disk if in local mode
-                saveAssetToLocal(proj, data.videoUrl, 'videos', `shot_${short.order}_video.mp4`).catch(() => {});
+                // Save to local disk if in local mode (surfaces failures via task log + toast)
+                saveVideoLocallyWithFeedback(proj, short, taskId, data.videoUrl, `shot_${short.order}_video.mp4`);
+                // Best-effort: auto-capture first/last frames so neighboring shots can
+                // continue from each other (issue #8). Never block polling on failure.
+                extractAndSaveVideoKeyframes(proj, short, data.videoUrl).catch(() => {});
                 showToast(`短片 #${short.order} 生成完成！`, 'success');
                 if (onUpdate) await onUpdate(proj, short);
             } else if (data.status === 'failed') {
@@ -1151,7 +1417,15 @@ export function startPolling(taskId, projectId, onUpdate) {
                 showToast(`短片 #${short.order} 生成失败`, 'error');
                 if (onUpdate) await onUpdate(proj, short);
             }
-        } catch (e) { console.error('Polling error:', e); }
+            // Successful round-trip (got a status response) — reset error counter
+            consecutiveErrors = 0;
+        } catch (e) {
+            consecutiveErrors++;
+            console.error(`[api] Polling error (${consecutiveErrors}/${POLL_MAX_CONSECUTIVE_ERRORS}) task=${taskId}:`, e);
+            if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+                await failTask(`轮询连续失败 ${consecutiveErrors} 次: ${e?.message || e}`);
+            }
+        }
     };
     poll();
     state.pollingIntervals[taskId] = setInterval(poll, 10000);

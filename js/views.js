@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
-import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, buildShotPicturebookPrompt, generateSubtitles, buildGenVideoPrompt, genImage as genImageDirect } from './api.js';
+import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, buildShotPicturebookPrompt, generateSubtitles, buildGenVideoPrompt, genImage as genImageDirect, buildEnhanceUserMsgPreview, extractAndSaveVideoKeyframes } from './api.js';
 import { ensurePresetLoaded } from './prompts.js';
 import { getGlobalPromptPreset, getGlobalVideoModel } from './global_settings.js';
 import { buildTree, renderTreeHTML, attachTreeEvents, isFolder, getCategoryFromType, getItemType } from './tree.js';
@@ -791,6 +791,22 @@ async function onAnalyzeScript() {
 
 // ============ Breakdown View (Tree + Detail) ============
 
+// Build a collapsible HTML block previewing the actual user messages that will be
+// sent to the LLM batch-by-batch (issue #4 — make hidden context visible).
+function buildUserMsgPreviewHtml(project, type) {
+    const previews = buildEnhanceUserMsgPreview(project, type);
+    if (!previews.length) return '';
+    const blocks = previews.map(p => {
+        const label = p.batchLabel ? `<div style="font-size:11px;color:var(--text-muted);margin:6px 0 2px">${escapeHtml(p.batchLabel)}</div>` : '';
+        return `${label}<pre style="margin:0;padding:8px;background:rgba(0,0,0,0.25);border:1px solid var(--border-card);border-radius:6px;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);max-height:240px;overflow:auto">${escapeHtml(p.userMsg)}</pre>`;
+    }).join('');
+    return `
+        <details style="margin-top:4px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--accent);user-select:none">🔍 查看实际发送给 LLM 的 user message（共 ${previews.length} 批）</summary>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">${blocks}</div>
+        </details>`;
+}
+
 // ---- Pipeline: Enhance Characters ----
 async function onEnhanceCharacters() {
     const proj = state.currentProject;
@@ -808,6 +824,7 @@ async function onEnhanceCharacters() {
                 <label class="text-xs" style="color:var(--text-muted)">AI 提示词 (可修改以自定义增强效果)</label>
                 <textarea id="enhanceCharsPromptInput" class="modal-input mt-1" style="min-height:180px;font-size:12px;line-height:1.5">${escapeHtml(defaultPrompt)}</textarea>
             </div>
+            ${buildUserMsgPreviewHtml(proj, 'characters')}
             <div id="enhanceCharStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
             <div class="flex gap-2">
                 <button class="btn-primary" id="doEnhanceCharsBtn">🎭 开始增强</button>
@@ -834,14 +851,22 @@ async function onEnhanceCharacters() {
 
             if (result.characters) {
                 let updated = 0;
+                let unmatched = 0;
+                const norm = (s) => String(s || '').trim().toLowerCase().replace(/[\s　]+/g, '').replace(/[\(（].*?[\)）]/g, '');
                 result.characters.forEach(enhanced => {
-                    const ch = proj.characters.find(c => c.name === enhanced.name);
-                    if (!ch) return;
+                    // Prefer id match (issue #5); fallback to exact name, then normalized name.
+                    let ch = enhanced.id && proj.characters.find(c => c.id === enhanced.id);
+                    if (!ch) ch = proj.characters.find(c => c.name === enhanced.name);
+                    if (!ch && enhanced.name) {
+                        const target = norm(enhanced.name);
+                        ch = proj.characters.find(c => norm(c.name) === target);
+                    }
+                    if (!ch) { unmatched++; return; }
                     if (enhanced.description) { ch.description = enhanced.description; updated++; }
                 });
                 await saveProject(proj);
                 modal.classList.add('hidden');
-                showToast(`已增强 ${updated} 个角色描述`, 'success');
+                showToast(`已增强 ${updated} 个角色描述${unmatched ? `（${unmatched} 个未匹配）` : ''}`, unmatched ? 'warning' : 'success');
                 renderBreakdown();
             } else {
                 showToast('增强结果格式异常', 'error');
@@ -873,6 +898,7 @@ async function onEnhanceScenes() {
                 <label class="text-xs" style="color:var(--text-muted)">AI 提示词 (可修改以自定义增强效果)</label>
                 <textarea id="enhanceScenesPromptInput" class="modal-input mt-1" style="min-height:180px;font-size:12px;line-height:1.5">${escapeHtml(defaultPrompt)}</textarea>
             </div>
+            ${buildUserMsgPreviewHtml(proj, 'scenes')}
             <div id="enhanceSceneStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
             <div class="flex gap-2">
                 <button class="btn-primary" id="doEnhanceScenesBtn">🏔️ 开始增强</button>
@@ -899,14 +925,22 @@ async function onEnhanceScenes() {
 
             if (result.scenes) {
                 let updated = 0;
+                let unmatched = 0;
+                const norm = (s) => String(s || '').trim().toLowerCase().replace(/[\s　]+/g, '').replace(/[\(（].*?[\)）]/g, '');
                 result.scenes.forEach(enhanced => {
-                    const sc = proj.scenes.find(s => s.name === enhanced.name);
-                    if (!sc) return;
+                    // Prefer id match (issue #6); fallback to exact name, then normalized name.
+                    let sc = enhanced.id && proj.scenes.find(s => s.id === enhanced.id);
+                    if (!sc) sc = proj.scenes.find(s => s.name === enhanced.name);
+                    if (!sc && enhanced.name) {
+                        const target = norm(enhanced.name);
+                        sc = proj.scenes.find(s => norm(s.name) === target);
+                    }
+                    if (!sc) { unmatched++; return; }
                     if (enhanced.description) { sc.description = enhanced.description; updated++; }
                 });
                 await saveProject(proj);
                 modal.classList.add('hidden');
-                showToast(`已增强 ${updated} 个场景描述`, 'success');
+                showToast(`已增强 ${updated} 个场景描述${unmatched ? `（${unmatched} 个未匹配）` : ''}`, unmatched ? 'warning' : 'success');
                 renderBreakdown();
             } else {
                 showToast('增强结果格式异常', 'error');
@@ -938,6 +972,7 @@ async function onEnhanceShots() {
                 <label class="text-xs" style="color:var(--text-muted)">AI 提示词 (可修改以自定义增强效果)</label>
                 <textarea id="enhanceShotsPromptInput" class="modal-input mt-1" style="min-height:180px;font-size:12px;line-height:1.5">${escapeHtml(defaultPrompt)}</textarea>
             </div>
+            ${buildUserMsgPreviewHtml(proj, 'shots')}
             <div id="enhanceStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
             <div class="flex gap-2">
                 <button class="btn-primary" id="doEnhanceBtn">🎬 开始增强</button>
@@ -2339,6 +2374,10 @@ function renderShortDetail(panel, proj, id) {
                             </div>
                         </div>
                     </div>
+                    <div class="flex gap-2 mt-2 flex-wrap" style="font-size:11px">
+                        <button class="btn-secondary" id="inheritPrevLastFrameBtn" style="padding:3px 8px;font-size:11px" title="从上一镜的尾帧复制为本镜首帧，保持镜头之间的连续性">⏪ 继承上一镜尾帧</button>
+                        <button class="btn-secondary" id="copyToNextFirstFrameBtn" style="padding:3px 8px;font-size:11px" title="把本镜尾帧复制为下一镜首帧">⏩ 复制到下一镜首帧</button>
+                    </div>
                 </div>
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考音频</label>
@@ -2808,6 +2847,65 @@ function renderShortDetail(panel, proj, id) {
             renderDetailPanel(id, 'short');
         };
     }
+    // Inherit prev shot's lastFrame as this shot's firstFrame (issue #8)
+    const inheritPrevLastFrameBtn = $('inheritPrevLastFrameBtn');
+    if (inheritPrevLastFrameBtn) {
+        inheritPrevLastFrameBtn.onclick = async () => {
+            const sorted = [...(proj.shorts || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+            const idx = sorted.findIndex(x => x.id === sh.id);
+            const prev = idx > 0 ? sorted[idx - 1] : null;
+            if (!prev) { showToast('已经是第一个分镜', 'error'); return; }
+            // If previous shot has no lastFrameUrl yet but already has a generated video,
+            // try to auto-extract its last frame on demand (issue: "we can not generate last frame").
+            if (!prev.lastFrameUrl && prev.videoUrl) {
+                showToast(`正在从 #${prev.order} 的视频抽取尾帧...`, 'info');
+                try {
+                    await extractAndSaveVideoKeyframes(proj, prev, prev.videoUrl);
+                } catch (err) {
+                    console.warn('[inheritPrevLastFrame] extract failed:', err);
+                }
+            }
+            if (!prev.lastFrameUrl) {
+                const hint = prev.videoUrl
+                    ? `上一镜 (#${prev.order}) 抽取尾帧失败（可能是跨域限制）。请手动上传`
+                    : `上一镜 (#${prev.order}) 还没有视频。请先生成视频，或手动上传尾帧`;
+                showToast(hint, 'error');
+                return;
+            }
+            sh.firstFrameUrl = prev.lastFrameUrl;
+            await saveProject(proj);
+            showToast(`已继承 #${prev.order} 的尾帧`, 'success');
+            renderDetailPanel(id, 'short');
+        };
+    }
+    const copyToNextFirstFrameBtn = $('copyToNextFirstFrameBtn');
+    if (copyToNextFirstFrameBtn) {
+        copyToNextFirstFrameBtn.onclick = async () => {
+            if (!sh.lastFrameUrl && sh.videoUrl) {
+                showToast('正在从本镜视频抽取尾帧...', 'info');
+                try {
+                    await extractAndSaveVideoKeyframes(proj, sh, sh.videoUrl);
+                } catch (err) {
+                    console.warn('[copyToNextFirstFrame] extract failed:', err);
+                }
+            }
+            if (!sh.lastFrameUrl) {
+                const hint = sh.videoUrl
+                    ? '抽取尾帧失败（可能是跨域限制）。请手动上传'
+                    : '本镜还没有视频。请先生成视频，或手动上传尾帧';
+                showToast(hint, 'error');
+                return;
+            }
+            const sorted = [...(proj.shorts || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+            const idx = sorted.findIndex(x => x.id === sh.id);
+            const next = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null;
+            if (!next) { showToast('已经是最后一个分镜', 'error'); return; }
+            next.firstFrameUrl = sh.lastFrameUrl;
+            await saveProject(proj);
+            showToast(`已复制到 #${next.order} 的首帧`, 'success');
+            renderDetailPanel(id, 'short');
+        };
+    }
     // Audio reference upload
     const shortAudioInput = $('shortAudioInput');
     if (shortAudioInput) {
@@ -3145,12 +3243,19 @@ function showRegenModal(nodeId, nodeType, prompt) {
     };
     const modal = $('editModal');
     $('editModalTitle').textContent = labels[nodeType] || '重新生成';
+    const previewUserMsg = nodeType === 'synopsis'
+        ? (state.currentProject.script || '').slice(0, 3000) || 'Generate synopsis'
+        : 'Please regenerate based on the above context.';
     $('editModalBody').innerHTML = `
         <div class="space-y-3">
             <div>
                 <label class="text-xs" style="color:var(--text-muted)">AI 提示词 (可修改以自定义生成效果)</label>
                 <textarea id="regenPromptInput" class="modal-input mt-1" style="min-height:200px;font-size:12px;line-height:1.5">${escapeHtml(prompt)}</textarea>
             </div>
+            <details>
+                <summary style="cursor:pointer;font-size:12px;color:var(--accent);user-select:none">🔍 查看实际发送给 LLM 的 user message</summary>
+                <pre style="margin:6px 0 0;padding:8px;background:rgba(0,0,0,0.25);border:1px solid var(--border-card);border-radius:6px;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);max-height:200px;overflow:auto">${escapeHtml(previewUserMsg)}</pre>
+            </details>
             <p class="text-xs" style="color:var(--text-faint)">${isGroup ? '⚠️ 将重新生成此分组下的所有子节点' : '将重新生成此节点'}</p>
             <div id="regenStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
             <div class="flex gap-2">
@@ -3228,34 +3333,83 @@ function applyRegenResult(nodeType, project, nodeId, result) {
         }
         case 'characters-group':
             if (result.characters) {
-                project.characters = result.characters.map(c => ({
-                    id: crypto.randomUUID(), name: c.name, description: c.description,
-                    imageUrl: null, imagePath: null, anchorImageUrl: null, anchorVerified: false,
-                    designPrompt: null, visualTraits: c.visualTraits || null,
-                }));
-                // Update short characterIds (best effort: clear them)
-                project.shorts.forEach(s => { s.characterIds = []; });
+                // Preserve old ids (and asset urls) when names match (issue #7).
+                const norm = (s) => String(s || '').trim().toLowerCase().replace(/[\s\u3000]+/g, '').replace(/[\(（].*?[\)）]/g, '');
+                const oldByName = new Map((project.characters || []).map(c => [norm(c.name), c]));
+                const newChars = result.characters.map(c => {
+                    const old = oldByName.get(norm(c.name));
+                    if (old) {
+                        // Keep id + assets + folder; refresh name/description/visualTraits from new result.
+                        return {
+                            ...old,
+                            name: c.name,
+                            description: c.description,
+                            visualTraits: c.visualTraits || old.visualTraits || null,
+                        };
+                    }
+                    return {
+                        id: crypto.randomUUID(), name: c.name, description: c.description,
+                        imageUrl: null, imagePath: null, anchorImageUrl: null, anchorVerified: false,
+                        designPrompt: null, visualTraits: c.visualTraits || null,
+                    };
+                });
+                project.characters = newChars;
+                // Drop dangling characterIds in shorts; keep the rest intact.
+                const validIds = new Set(newChars.map(c => c.id));
+                project.shorts.forEach(s => {
+                    s.characterIds = (s.characterIds || []).filter(id => validIds.has(id));
+                });
             }
             break;
         case 'props-group':
             if (result.props) {
-                project.props = result.props.map(p => ({
-                    id: crypto.randomUUID(), name: p.name, description: p.description,
-                    imageUrl: null, imagePath: null, anchorImageUrl: null, anchorVerified: false,
-                    designPrompt: null,
-                }));
-                project.shorts.forEach(s => { s.propIds = []; });
+                const norm = (s) => String(s || '').trim().toLowerCase().replace(/[\s\u3000]+/g, '').replace(/[\(（].*?[\)）]/g, '');
+                const oldByName = new Map((project.props || []).map(p => [norm(p.name), p]));
+                const newProps = result.props.map(p => {
+                    const old = oldByName.get(norm(p.name));
+                    if (old) {
+                        return { ...old, name: p.name, description: p.description };
+                    }
+                    return {
+                        id: crypto.randomUUID(), name: p.name, description: p.description,
+                        imageUrl: null, imagePath: null, anchorImageUrl: null, anchorVerified: false,
+                        designPrompt: null,
+                    };
+                });
+                project.props = newProps;
+                const validIds = new Set(newProps.map(p => p.id));
+                project.shorts.forEach(s => {
+                    s.propIds = (s.propIds || []).filter(id => validIds.has(id));
+                });
             }
             break;
         case 'scenes-group':
             if (result.scenes) {
-                project.scenes = result.scenes.map(s => ({
-                    id: crypto.randomUUID(), name: s.name, description: s.description,
-                    imageUrl: null, imagePath: null,
-                    lighting: s.lighting || null, timeOfDay: s.timeOfDay || null,
-                    weather: s.weather || null, mood: s.mood || null,
-                }));
-                project.shorts.forEach(s => { s.sceneId = null; });
+                const norm = (s) => String(s || '').trim().toLowerCase().replace(/[\s\u3000]+/g, '').replace(/[\(（].*?[\)）]/g, '');
+                const oldByName = new Map((project.scenes || []).map(s => [norm(s.name), s]));
+                const newScenes = result.scenes.map(s => {
+                    const old = oldByName.get(norm(s.name));
+                    if (old) {
+                        return {
+                            ...old, name: s.name, description: s.description,
+                            lighting: s.lighting || old.lighting || null,
+                            timeOfDay: s.timeOfDay || old.timeOfDay || null,
+                            weather: s.weather || old.weather || null,
+                            mood: s.mood || old.mood || null,
+                        };
+                    }
+                    return {
+                        id: crypto.randomUUID(), name: s.name, description: s.description,
+                        imageUrl: null, imagePath: null,
+                        lighting: s.lighting || null, timeOfDay: s.timeOfDay || null,
+                        weather: s.weather || null, mood: s.mood || null,
+                    };
+                });
+                project.scenes = newScenes;
+                const validIds = new Set(newScenes.map(s => s.id));
+                project.shorts.forEach(s => {
+                    if (s.sceneId && !validIds.has(s.sceneId)) s.sceneId = null;
+                });
             }
             break;
         case 'shorts-group':
