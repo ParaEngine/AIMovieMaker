@@ -90,6 +90,7 @@ export function normalizeProject(project) {
         customEnvSuffix: '',
         racePreset: '',
         customRaceSuffix: '',
+        seed: -1,
         ...(project.settings || {}),
     };
     if (project.settings.model && !videoModels.includes(project.settings.model)
@@ -168,6 +169,7 @@ export function normalizeProject(project) {
         picturebookStatus: null,
         picturebookTaskId: null,
         picturebookError: null,
+        picturebookCandidates: [],
         videoCandidates: [],
         parallelTasks: [],
         dialogue: '',
@@ -199,6 +201,7 @@ export function normalizeProject(project) {
         picturebookStatus: short?.picturebookStatus || null,
         picturebookTaskId: short?.picturebookTaskId || null,
         picturebookError: short?.picturebookError || null,
+        picturebookCandidates: short?.picturebookCandidates || [],
         videoCandidates: short?.videoCandidates || [],
         parallelTasks: short?.parallelTasks || [],
         dialogue: short?.dialogue || '',

@@ -1,7 +1,8 @@
 // ============ AI Image Generation Modal ============
 
-import { escapeHtml, showToast, $ } from './utils.js';
+import { escapeHtml, showToast, $, resolveUrl } from './utils.js';
 import { CONFIG, getStylePreset, getEnvPreset, getRacePreset } from './config.js';
+import { uploadTempImage } from './api.js';
 
 /**
  * Aspect ratio definitions with labels and icons.
@@ -118,24 +119,35 @@ function buildDefaultPrompt(nodeType, description, project) {
  * Show the AI image generation modal.
  *
  * @param {Object} options
- * @param {'character'|'scene'|'prop'} options.nodeType - Type of the node
+ * @param {'character'|'scene'|'prop'|'picturebook'|string} options.nodeType - Type of the node
  * @param {string} options.description - The node's current description text
  * @param {Object} options.project - The current project
- * @param {Function} options.onGenerate - async callback(prompt, { width, height }) => called when user clicks generate
+ * @param {Function} options.onGenerate - async callback(prompt, { width, height, referenceImages }) => called when user clicks generate
  * @param {Function} [options.onSave] - async callback(description) => called to auto-save node info before generating
+ * @param {string[]} [options.initialReferenceImages] - URLs to pre-populate the reference image list
+ * @param {Function} [options.onReferencesChange] - async callback(referenceImages: string[]) => fired whenever the reference list changes (add/remove); use to persist refs on the node
+ * @param {Function} [options.customBuildPrompt] - (description) => string. Override the default prompt builder (used by picturebook etc.)
+ * @param {string} [options.typeLabel] - Override the modal title type label (e.g. '绘本插画')
+ * @param {string} [options.descriptionLabel] - Override the description textarea label (e.g. '画面描述')
+ * @param {string} [options.defaultRatio] - Override the default aspect ratio (e.g. '16:9')
+ * @param {string} [options.defaultRes] - Override the default resolution ('2k' | '4k')
  */
-export function showGenImageModal({ nodeType, description, project, onGenerate, onSave }) {
+export function showGenImageModal({ nodeType, description, project, onGenerate, onSave, initialReferenceImages, onReferencesChange, customBuildPrompt, typeLabel: typeLabelOverride, descriptionLabel, defaultRatio: defaultRatioOverride, defaultRes: defaultResOverride }) {
     // Remove any existing modal
     const existing = $('genImageModal');
     if (existing) existing.remove();
 
-    const defaultRatio = 'auto';
-    const defaultRes = '2k';
-    const defaultPrompt = buildDefaultPrompt(nodeType, description, project);
+    const defaultRatio = defaultRatioOverride || 'auto';
+    const defaultRes = defaultResOverride || '2k';
+    const buildPrompt = (typeof customBuildPrompt === 'function')
+        ? customBuildPrompt
+        : (desc) => buildDefaultPrompt(nodeType, desc, project);
+    const defaultPrompt = buildPrompt(description);
     const dims = calcDimensions(defaultRatio, defaultRes);
 
-    const typeLabels = { character: '角色', scene: '场景', prop: '道具' };
-    const typeLabel = typeLabels[nodeType] || '图片';
+    const typeLabels = { character: '角色', scene: '场景', prop: '道具', picturebook: '绘本插画' };
+    const typeLabel = typeLabelOverride || typeLabels[nodeType] || '图片';
+    const descLabel = descriptionLabel || '外观描述';
 
     const overlay = document.createElement('div');
     overlay.id = 'genImageModal';
@@ -149,13 +161,26 @@ export function showGenImageModal({ nodeType, description, project, onGenerate, 
 
             <!-- Description / Prompt -->
             <div class="mb-4">
-                <label class="text-xs" style="color:var(--text-muted)">外观描述</label>
+                <label class="text-xs" style="color:var(--text-muted)">${escapeHtml(descLabel)}</label>
                 <textarea id="genImgDesc" class="modal-input mt-1" style="min-height:80px">${escapeHtml(description)}</textarea>
             </div>
 
             <div class="mb-4">
                 <label class="text-xs" style="color:var(--text-muted)">完整提示词 <span style="color:var(--text-faint)">(可编辑)</span></label>
                 <textarea id="genImgPrompt" class="modal-input mt-1" style="min-height:100px;font-size:12px;font-family:monospace">${escapeHtml(defaultPrompt)}</textarea>
+            </div>
+
+            <!-- Reference Images -->
+            <div class="mb-4" data-img-paste="genimg-ref">
+                <label class="text-xs" style="color:var(--accent-blue)">参考图片 <span style="color:var(--text-faint)">(可选，可粘贴或上传，最多 4 张)</span></label>
+                <div class="mt-2 flex flex-wrap items-center gap-2" id="genImgRefList"></div>
+                <div class="mt-2 flex items-center gap-2">
+                    <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer" title="上传参考图片">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <input type="file" accept="image/*" multiple class="hidden" id="genImgRefInput">
+                    </label>
+                    <span class="text-xs" style="color:var(--text-faint)" id="genImgRefHint">尚未添加参考图片</span>
+                </div>
             </div>
 
             <!-- Aspect Ratio -->
@@ -229,6 +254,71 @@ export function showGenImageModal({ nodeType, description, project, onGenerate, 
     // --- State ---
     let selectedRatio = defaultRatio;
     let selectedRes = defaultRes;
+    const MAX_REFS = 4;
+    /** @type {string[]} */
+    const referenceImages = Array.isArray(initialReferenceImages)
+        ? initialReferenceImages.filter(u => typeof u === 'string' && u).slice(0, MAX_REFS)
+        : [];
+
+    function renderRefList() {
+        const list = $('genImgRefList');
+        const hint = $('genImgRefHint');
+        if (!list) return;
+        list.innerHTML = referenceImages.map((url, idx) => `
+            <div class="relative" style="position:relative;display:inline-block">
+                <img src="${escapeHtml(resolveUrl(url))}" class="img-thumb" title="${escapeHtml(url)}">
+                <button class="genimg-ref-remove" data-idx="${idx}" title="移除"
+                    style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:none;background:#ef4444;color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+            </div>
+        `).join('');
+        if (hint) {
+            hint.textContent = referenceImages.length
+                ? `已添加 ${referenceImages.length}/${MAX_REFS} 张参考图片`
+                : '尚未添加参考图片';
+        }
+        list.querySelectorAll('.genimg-ref-remove').forEach(btn => {
+            btn.onclick = () => {
+                const i = parseInt(btn.dataset.idx, 10);
+                if (!isNaN(i)) {
+                    referenceImages.splice(i, 1);
+                    renderRefList();
+                    notifyRefsChanged();
+                }
+            };
+        });
+    }
+
+    function notifyRefsChanged() {
+        if (typeof onReferencesChange !== 'function') return;
+        try {
+            const result = onReferencesChange(referenceImages.slice());
+            if (result && typeof result.then === 'function') {
+                result.catch(err => console.warn('onReferencesChange failed:', err));
+            }
+        } catch (err) {
+            console.warn('onReferencesChange failed:', err);
+        }
+    }
+
+    async function addReferenceFile(file) {
+        if (!file || !file.type?.startsWith('image/')) return;
+        if (referenceImages.length >= MAX_REFS) {
+            showToast(`最多只能添加 ${MAX_REFS} 张参考图片`, 'error');
+            return;
+        }
+        const hint = $('genImgRefHint');
+        if (hint) hint.textContent = '上传中...';
+        const url = await uploadTempImage(file);
+        if (url) {
+            referenceImages.push(url);
+            renderRefList();
+            notifyRefsChanged();
+        } else if (hint) {
+            renderRefList();
+        }
+    }
+
+    renderRefList();
 
     function updateDimensions() {
         const d = calcDimensions(selectedRatio, selectedRes);
@@ -242,7 +332,7 @@ export function showGenImageModal({ nodeType, description, project, onGenerate, 
 
     function updatePrompt() {
         const desc = $('genImgDesc')?.value?.trim() || description;
-        const prompt = buildDefaultPrompt(nodeType, desc, project);
+        const prompt = buildPrompt(desc);
         $('genImgPrompt').value = prompt;
     }
 
@@ -275,6 +365,39 @@ export function showGenImageModal({ nodeType, description, project, onGenerate, 
     // Description change → rebuild prompt
     $('genImgDesc').addEventListener('input', updatePrompt);
 
+    // Reference image upload
+    const refInput = $('genImgRefInput');
+    if (refInput) {
+        refInput.onchange = async (e) => {
+            const files = Array.from(e.target.files || []);
+            for (const f of files) await addReferenceFile(f);
+            refInput.value = '';
+        };
+    }
+
+    // Paste image into modal as reference (active while modal is open)
+    const onPaste = async (e) => {
+        if (!document.body.contains(overlay)) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        let consumed = false;
+        for (const item of items) {
+            if (item.type?.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) { await addReferenceFile(file); consumed = true; }
+            }
+        }
+        if (consumed) e.preventDefault();
+    };
+    document.addEventListener('paste', onPaste);
+    const cleanupPaste = () => document.removeEventListener('paste', onPaste);
+    overlay.addEventListener('remove', cleanupPaste);
+    // Also clean up via MutationObserver fallback
+    const mo = new MutationObserver(() => {
+        if (!document.body.contains(overlay)) { cleanupPaste(); mo.disconnect(); }
+    });
+    mo.observe(document.body, { childList: true, subtree: false });
+
     // Generate
     $('genImgStartBtn').onclick = async () => {
         const prompt = $('genImgPrompt')?.value?.trim();
@@ -297,7 +420,7 @@ export function showGenImageModal({ nodeType, description, project, onGenerate, 
         $('genImgProgress').classList.remove('hidden');
 
         try {
-            await onGenerate(prompt, { width: d.width, height: d.height });
+            await onGenerate(prompt, { width: d.width, height: d.height, referenceImages: referenceImages.slice() });
             overlay.remove();
         } catch (err) {
             showToast(`生成失败: ${err.message}`, 'error');

@@ -4,9 +4,9 @@ import { CONFIG } from './config.js';
 import { state, sdk, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, getFolders, normalizeProject, resetTreeExpanded, syncShortReferenceVideoUrl, syncReferenceVideoDependents } from './state.js';
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
-import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, buildGenVideoPrompt, genImage as genImageDirect } from './api.js';
+import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, buildShotPicturebookPrompt, generateSubtitles, buildGenVideoPrompt, genImage as genImageDirect } from './api.js';
 import { ensurePresetLoaded } from './prompts.js';
-import { getGlobalPromptPreset } from './global_settings.js';
+import { getGlobalPromptPreset, getGlobalVideoModel } from './global_settings.js';
 import { buildTree, renderTreeHTML, attachTreeEvents, isFolder, getCategoryFromType, getItemType } from './tree.js';
 import ClipEditor from './clipeditor.js';
 import Mp4ToWebp from './mp4ToWebp.js';
@@ -611,7 +611,6 @@ function collectSettingsInline() {
     if ($('settingResolutionInline')) proj.settings.resolution = $('settingResolutionInline').value;
     if ($('settingRatioInline')) proj.settings.ratio = $('settingRatioInline').value;
     if ($('settingDurationInline')) proj.settings.defaultDuration = parseInt($('settingDurationInline').value);
-    if ($('settingModelInline')) proj.settings.model = $('settingModelInline').value;
     if ($('settingStylePresetInline')) proj.settings.stylePreset = $('settingStylePresetInline').value;
     if ($('settingCustomStyleInline')) proj.settings.customStyleSuffix = $('settingCustomStyleInline').value;
     if ($('settingEnvPresetInline')) proj.settings.envPreset = $('settingEnvPresetInline').value;
@@ -619,6 +618,15 @@ function collectSettingsInline() {
     if ($('settingRacePresetInline')) proj.settings.racePreset = $('settingRacePresetInline').value;
     if ($('settingCustomRaceInline')) proj.settings.customRaceSuffix = $('settingCustomRaceInline').value;
     if ($('audioToggleInline')) proj.settings.generateAudio = $('audioToggleInline').checked;
+    if ($('settingSeedInline')) {
+        const raw = $('settingSeedInline').value.trim();
+        if (raw === '') {
+            proj.settings.seed = -1;
+        } else {
+            const n = parseInt(raw, 10);
+            proj.settings.seed = Number.isFinite(n) ? Math.max(-1, Math.min(4294967295, n)) : -1;
+        }
+    }
     if ($('settingNarrationLanguageInline')) proj.settings.narrationLanguage = $('settingNarrationLanguageInline').value;
     if ($('settingPromptPresetInline')) proj.settings.promptPreset = $('settingPromptPresetInline').value;
     if ($('settingIncludeNarrationInline')) proj.settings.includeNarration = $('settingIncludeNarrationInline').checked;
@@ -1804,7 +1812,7 @@ function renderCharacterDetail(panel, proj, id) {
                 ${traitsHTML}
                 <div id="charStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
-                    <label class="text-xs" style="color:var(--text-muted)">参考图片 (锚点)</label>
+                    <label class="text-xs" style="color:var(--text-muted)">图片 (锚点)</label>
                     <div class="mt-1 flex items-center gap-3" data-img-paste="character">
                         ${c.imageUrl
                             ? (isAssetRef
@@ -1900,6 +1908,11 @@ function renderCharacterDetail(panel, proj, id) {
             nodeType: 'character',
             description: desc,
             project: proj,
+            initialReferenceImages: Array.isArray(c.referenceImages) ? c.referenceImages.slice() : [],
+            onReferencesChange: async (refs) => {
+                c.referenceImages = Array.isArray(refs) ? refs.slice() : [];
+                await saveProject(proj);
+            },
             onSave: async (updatedDesc) => {
                 c.name = $('detailName')?.value?.trim() || c.name;
                 c.description = updatedDesc;
@@ -1908,9 +1921,12 @@ function renderCharacterDetail(panel, proj, id) {
                 renderTreePanel();
                 attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
             },
-            onGenerate: async (prompt, { width, height }) => {
+            onGenerate: async (prompt, { width, height, referenceImages }) => {
+                const images = (referenceImages || [])
+                    .filter(u => typeof u === 'string' && u)
+                    .map(url => ({ url, role: 'reference_image' }));
                 preserveImageCandidate(c);
-                const url = await genImageDirect(prompt, { width, height });
+                const url = await genImageDirect(prompt, { width, height, images: images.length ? images : undefined });
                 if (url) {
                     addImageCandidate(c, url);
                     await saveProject(proj);
@@ -1939,7 +1955,7 @@ function renderPropDetail(panel, proj, id) {
                 <div><label class="text-xs" style="color:var(--text-muted)">外观描述</label><textarea id="detailDesc" class="modal-input mt-1" style="min-height:100px">${escapeHtml(p.description || '')}</textarea></div>
                 <div id="propStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
-                    <label class="text-xs" style="color:var(--text-muted)">参考图片</label>
+                    <label class="text-xs" style="color:var(--text-muted)">图片</label>
                     <div class="mt-1 flex items-center gap-3" data-img-paste="prop">
                         ${p.imageUrl ? `<img src="${escapeHtml(resolveUrl(p.imageUrl))}" class="img-thumb${p.anchorVerified ? ' anchor-verified' : ''}" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(p.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
@@ -2006,6 +2022,11 @@ function renderPropDetail(panel, proj, id) {
             nodeType: 'prop',
             description: desc,
             project: proj,
+            initialReferenceImages: Array.isArray(p.referenceImages) ? p.referenceImages.slice() : [],
+            onReferencesChange: async (refs) => {
+                p.referenceImages = Array.isArray(refs) ? refs.slice() : [];
+                await saveProject(proj);
+            },
             onSave: async (updatedDesc) => {
                 p.name = $('detailName')?.value?.trim() || p.name;
                 p.description = updatedDesc;
@@ -2014,9 +2035,12 @@ function renderPropDetail(panel, proj, id) {
                 renderTreePanel();
                 attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
             },
-            onGenerate: async (prompt, { width, height }) => {
+            onGenerate: async (prompt, { width, height, referenceImages }) => {
+                const images = (referenceImages || [])
+                    .filter(u => typeof u === 'string' && u)
+                    .map(url => ({ url, role: 'reference_image' }));
                 preserveImageCandidate(p);
-                const url = await genImageDirect(prompt, { width, height });
+                const url = await genImageDirect(prompt, { width, height, images: images.length ? images : undefined });
                 if (url) {
                     addImageCandidate(p, url);
                     await saveProject(proj);
@@ -2055,7 +2079,7 @@ function renderSceneDetail(panel, proj, id) {
                 </div>
                 <div id="sceneStreamPreview" class="card-flat hidden" style="max-height:200px;overflow-y:auto;padding:10px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);font-family:monospace"></div>
                 <div>
-                    <label class="text-xs" style="color:var(--text-muted)">参考图片</label>
+                    <label class="text-xs" style="color:var(--text-muted)">图片</label>
                     <div class="mt-1 flex items-center gap-3" data-img-paste="scene">
                         ${s.imageUrl ? `<img src="${escapeHtml(resolveUrl(s.imageUrl))}" class="img-thumb" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(s.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
@@ -2120,6 +2144,11 @@ function renderSceneDetail(panel, proj, id) {
             nodeType: 'scene',
             description: desc,
             project: proj,
+            initialReferenceImages: Array.isArray(s.referenceImages) ? s.referenceImages.slice() : [],
+            onReferencesChange: async (refs) => {
+                s.referenceImages = Array.isArray(refs) ? refs.slice() : [];
+                await saveProject(proj);
+            },
             onSave: async (updatedDesc) => {
                 s.name = $('detailName')?.value?.trim() || s.name;
                 s.description = updatedDesc;
@@ -2127,9 +2156,12 @@ function renderSceneDetail(panel, proj, id) {
                 renderTreePanel();
                 attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
             },
-            onGenerate: async (prompt, { width, height }) => {
+            onGenerate: async (prompt, { width, height, referenceImages }) => {
+                const images = (referenceImages || [])
+                    .filter(u => typeof u === 'string' && u)
+                    .map(url => ({ url, role: 'reference_image' }));
                 preserveImageCandidate(s);
-                const url = await genImageDirect(prompt, { width, height });
+                const url = await genImageDirect(prompt, { width, height, images: images.length ? images : undefined });
                 if (url) {
                     addImageCandidate(s, url);
                     await saveProject(proj);
@@ -2327,13 +2359,6 @@ function renderShortDetail(panel, proj, id) {
                 </div>
                 <div class="flex gap-4 flex-wrap items-end">
                     <div>
-                        <label class="text-xs" style="color:var(--text-muted)">模型 (覆盖项目设置)</label>
-                        <select id="detailModelOverride" class="modal-input mt-1">
-                            <option value="" ${!sh.modelOverride ? 'selected' : ''}>跟随项目 (${escapeHtml(proj.settings.model)})</option>
-                            ${Object.keys(CONFIG.MODELS).map(m => `<option value="${m}" ${sh.modelOverride === m ? 'selected' : ''}>${m}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div>
                         <label class="text-xs" style="color:var(--text-muted)">生成音频</label>
                         <select id="detailGenAudioOverride" class="modal-input mt-1">
                             <option value="" ${sh.generateAudioOverride === null ? 'selected' : ''}>跟随项目 (${proj.settings.generateAudio ? '开启' : '关闭'})</option>
@@ -2372,6 +2397,7 @@ function renderShortDetail(panel, proj, id) {
                     </div>`}
                     ${sh.picturebookStatus === 'failed' && sh.picturebookError ? `
                     <div class="text-xs p-2 rounded-lg mt-1" style="background:rgba(239,68,68,0.1);color:#fca5a5;border:1px solid rgba(239,68,68,0.2)">❌ ${escapeHtml(sh.picturebookError)}</div>` : ''}
+                    ${renderPicturebookCandidatesHTML(sh)}
                 </div>
                 ${sh.videoUrl ? `
                 <div>
@@ -2400,11 +2426,19 @@ function renderShortDetail(panel, proj, id) {
                         }).join('')}
                     </div>
                 </div>` : ''}
-                ${sh.status === 'running' ? `
-                <div class="flex items-center gap-2 py-2">
+                ${sh.status === 'running' ? (() => {
+                    const pollingActive = sh.taskId ? !!state.pollingIntervals[sh.taskId] : false;
+                    const parallelRunning = (sh.parallelTasks || []).filter(t => t.status === 'running').length;
+                    const parallelHint = parallelRunning > 0 ? ` (${parallelRunning + 1} 个任务并行)` : '';
+                    const stuckHint = !pollingActive ? '<span style="color:#fcd34d;margin-left:6px">(未在轮询，可能已中断)</span>' : '';
+                    return `
+                <div class="flex items-center gap-2 py-2 flex-wrap">
                     <div class="spinner"></div>
-                    <span class="text-xs" style="color:var(--text-muted)">视频生成中...${(sh.parallelTasks || []).filter(t => t.status === 'running').length > 0 ? ` (${(sh.parallelTasks || []).filter(t => t.status === 'running').length + 1} 个任务并行)` : ''}</span>
-                </div>` : ''}
+                    <span class="text-xs" style="color:var(--text-muted)">视频生成中...${parallelHint}${stuckHint}</span>
+                    ${sh.taskId ? `<button class="btn-secondary text-xs" id="recheckShortBtn">🔄 重新检查状态</button>` : ''}
+                    <button class="btn-danger text-xs" id="stopShortBtn">✕ 停止/重置</button>
+                </div>`;
+                })() : ''}
                 ${sh.status === 'failed' && sh.error ? `
                 <div class="text-xs p-2 rounded-lg" style="background:rgba(239,68,68,0.1);color:#fca5a5;border:1px solid rgba(239,68,68,0.2)">❌ ${escapeHtml(sh.error)}</div>` : ''}
                 <div class="flex gap-2 pt-2 flex-wrap">
@@ -2437,8 +2471,6 @@ function renderShortDetail(panel, proj, id) {
         sh.cameraAngle = $('detailCameraAngle')?.value?.trim() || null;
         sh.lighting = $('detailLightingShort')?.value?.trim() || null;
         // Advanced overrides
-        const modelVal = $('detailModelOverride')?.value;
-        sh.modelOverride = modelVal || null;
         const genAudioVal = $('detailGenAudioOverride')?.value;
         sh.generateAudioOverride = genAudioVal === '' ? null : genAudioVal === 'true';
         sh.watermark = $('detailWatermark')?.checked || false;
@@ -2452,6 +2484,43 @@ function renderShortDetail(panel, proj, id) {
         attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
     };
     $('regenShortBtn').onclick = () => onTreeRegenerate(id, 'short');
+    if ($('stopShortBtn')) {
+        $('stopShortBtn').onclick = async () => {
+            if (!confirm('停止并重置此短片的生成状态？\n\n如果后台仍在生成，结果将被丢弃。')) return;
+            if (sh.taskId) stopPolling(sh.taskId);
+            (sh.parallelTasks || []).forEach(t => {
+                if (t.status === 'running') {
+                    if (t.taskId) stopPolling(t.taskId);
+                    t.status = 'failed';
+                    t.error = t.error || '已手动停止';
+                }
+            });
+            const hadSucceededParallel = (sh.parallelTasks || []).some(t => t.status === 'succeeded');
+            sh.status = hadSucceededParallel || sh.videoUrl ? 'succeeded' : 'pending';
+            sh.taskId = null;
+            if (sh.status !== 'succeeded') sh.error = sh.error || '已手动停止';
+            // Clear from generation queue if present
+            if (Array.isArray(state.generationQueue)) {
+                state.generationQueue = state.generationQueue.filter(qid => qid !== sh.id);
+            }
+            // If no other shorts are running, reset project status
+            const stillRunning = (proj.shorts || []).some(s => s.status === 'running');
+            if (!stillRunning && proj.status === 'generating') proj.status = 'editing';
+            await saveProject(proj);
+            renderDetailPanel(id, 'short');
+            renderTreePanel();
+            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            showToast('已重置短片状态', 'info');
+        };
+    }
+    if ($('recheckShortBtn')) {
+        $('recheckShortBtn').onclick = async () => {
+            if (!sh.taskId) { showToast('无任务 ID，无法重新检查', 'error'); return; }
+            showToast('正在重新检查任务状态...', 'info');
+            // Restart polling (will no-op if already polling, otherwise triggers an immediate poll)
+            startPolling(sh.taskId, proj.id, onGenerationUpdate);
+        };
+    }
     $('genShotVideoBtn').onclick = async () => {
         applyShortDetailFormValues();
         await saveProject(proj);
@@ -2460,32 +2529,68 @@ function renderShortDetail(panel, proj, id) {
     if ($('genSelectedBtn')) $('genSelectedBtn').onclick = () => queueShotsForGeneration([...state.selectedNodeIds], proj);
     // Picturebook mode events
     if ($('genPicturebookBtn')) {
-        $('genPicturebookBtn').onclick = async () => {
-            sh.picturebook = true;
-            sh.picturebookStatus = 'running';
-            sh.picturebookError = null;
-            await saveProject(proj);
-            renderDetailPanel(id, 'short');
-            try {
-                const imgUrl = await generateShotPicturebookImage(sh, proj);
-                if (imgUrl) {
-                    sh.picturebookUrl = imgUrl;
-                    sh.picturebookStatus = 'succeeded';
-                    showToast('绘本插画生成成功', 'success');
-                } else {
-                    sh.picturebookStatus = 'failed';
-                    sh.picturebookError = '未返回图片';
-                    showToast('绘本插画生成失败', 'error');
-                }
-            } catch (err) {
-                sh.picturebookStatus = 'failed';
-                sh.picturebookError = err.message;
-                showToast(`绘本插画生成失败: ${err.message}`, 'error');
-            }
-            await saveProject(proj);
-            renderDetailPanel(id, 'short');
-            renderTreePanel();
-            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+        $('genPicturebookBtn').onclick = () => {
+            // Persist any pending edits so the prompt builder uses fresh data
+            applyShortDetailFormValues();
+            const built = buildShotPicturebookPrompt(sh, proj);
+            const initialRefs = built.images.map(i => i.url);
+            // Use shot prompt as the description shown in the modal
+            const descForModal = sh.prompt || '';
+            // Determine default ratio from the shot/project
+            const ratioMap = { '16:9': '16:9', '9:16': '9:16', '1:1': '1:1' };
+            const defaultRatio = ratioMap[built.ratio] || '16:9';
+            showGenImageModal({
+                nodeType: 'picturebook',
+                description: descForModal,
+                project: proj,
+                typeLabel: '绘本插画',
+                descriptionLabel: '画面描述 (镜头提示词)',
+                defaultRatio,
+                initialReferenceImages: initialRefs,
+                customBuildPrompt: (desc) => {
+                    // Rebuild using the shot with the latest prompt edited in the modal
+                    const shotForPrompt = { ...sh, prompt: desc };
+                    return buildShotPicturebookPrompt(shotForPrompt, proj).prompt;
+                },
+                onSave: async (updatedDesc) => {
+                    sh.prompt = updatedDesc;
+                    await saveProject(proj);
+                },
+                onGenerate: async (prompt, { width, height, referenceImages }) => {
+                    const images = (referenceImages || [])
+                        .filter(u => typeof u === 'string' && u)
+                        .map(url => ({ url, role: 'reference_image' }));
+                    // Preserve current picturebook as a candidate before regenerating
+                    preservePicturebookCandidate(sh);
+                    sh.picturebook = true;
+                    sh.picturebookStatus = 'running';
+                    sh.picturebookError = null;
+                    await saveProject(proj);
+                    renderDetailPanel(id, 'short');
+                    try {
+                        const imgUrl = await genImageDirect(prompt, { width, height, images: images.length ? images : undefined });
+                        if (imgUrl) {
+                            addPicturebookCandidate(sh, imgUrl, null);
+                            sh.picturebookStatus = 'succeeded';
+                            showToast('绘本插画生成成功', 'success');
+                        } else {
+                            sh.picturebookStatus = 'failed';
+                            sh.picturebookError = '未返回图片';
+                            showToast('绘本插画生成失败', 'error');
+                        }
+                    } catch (err) {
+                        sh.picturebookStatus = 'failed';
+                        sh.picturebookError = err.message;
+                        showToast(`绘本插画生成失败: ${err.message}`, 'error');
+                        throw err;
+                    } finally {
+                        await saveProject(proj);
+                        renderDetailPanel(id, 'short');
+                        renderTreePanel();
+                        attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+                    }
+                },
+            });
         };
     }
     if ($('picturebookUploadInput')) {
@@ -2494,9 +2599,9 @@ function renderShortDetail(panel, proj, id) {
             showToast('上传中...', 'info');
             const asset = await saveProjectImageAsset(proj, file, 'picturebook', `${sh.id}-pb-${Date.now()}`);
             if (asset) {
+                preservePicturebookCandidate(sh);
                 sh.picturebook = true;
-                sh.picturebookUrl = asset.url;
-                sh.picturebookPath = asset.path;
+                addPicturebookCandidate(sh, asset.url, asset.path);
                 sh.picturebookStatus = 'succeeded';
                 await saveProject(proj);
                 showToast('绘本插画上传成功', 'success');
@@ -2508,16 +2613,20 @@ function renderShortDetail(panel, proj, id) {
     }
     if ($('removePicturebookBtn')) {
         $('removePicturebookBtn').onclick = async () => {
-            sh.picturebook = false;
-            sh.picturebookUrl = null;
-            sh.picturebookPath = null;
-            sh.picturebookStatus = null;
-            sh.picturebookError = null;
+            if (sh.picturebookUrl) {
+                deletePicturebookCandidate(proj, sh, sh.picturebookUrl);
+            } else {
+                sh.picturebook = false;
+                sh.picturebookUrl = null;
+                sh.picturebookPath = null;
+                sh.picturebookStatus = null;
+                sh.picturebookError = null;
+            }
             await saveProject(proj);
             renderDetailPanel(id, 'short');
             renderTreePanel();
             attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
-            showToast('已移除绘本插画', 'success');
+            showToast('已移到回收站', 'info');
         };
     }
     // Candidate selection & deletion
@@ -2552,6 +2661,7 @@ function renderShortDetail(panel, proj, id) {
             };
         });
     }
+    attachPicturebookCandidateEvents(sh, proj, id, 'short');
     $('deleteShortBtn').onclick = async () => {
         if (!confirm('确定删除此短片？')) return;
         proj.shorts = proj.shorts.filter(x => x.id !== id);
@@ -3379,6 +3489,131 @@ function attachImageCandidateEvents(item, proj, nodeId, nodeType) {
     });
 }
 
+// ============ Picturebook Candidates ============
+
+/** Save current picturebook image as a candidate before regeneration */
+function preservePicturebookCandidate(short) {
+    if (!short.picturebookUrl) return;
+    if (!short.picturebookCandidates) short.picturebookCandidates = [];
+    if (short.picturebookCandidates.some(c => c.url === short.picturebookUrl)) return;
+    short.picturebookCandidates.push({
+        url: short.picturebookUrl,
+        path: short.picturebookPath || null,
+        createdAt: new Date().toISOString(),
+    });
+}
+
+/** Add a newly generated picturebook image as a candidate and set it active */
+function addPicturebookCandidate(short, imageUrl, imagePath) {
+    if (!short.picturebookCandidates) short.picturebookCandidates = [];
+    if (!short.picturebookCandidates.some(c => c.url === imageUrl)) {
+        short.picturebookCandidates.push({
+            url: imageUrl,
+            path: imagePath || null,
+            createdAt: new Date().toISOString(),
+        });
+    }
+    short.picturebookUrl = imageUrl;
+    short.picturebookPath = imagePath || null;
+}
+
+/** Select a picturebook candidate as the active image */
+function selectPicturebookCandidate(short, candidateUrl) {
+    const candidate = (short.picturebookCandidates || []).find(c => c.url === candidateUrl);
+    if (!candidate) return;
+    short.picturebookUrl = candidate.url;
+    short.picturebookPath = candidate.path || null;
+    short.picturebookStatus = 'succeeded';
+    short.picturebookError = null;
+}
+
+/** Delete a picturebook candidate and move it to trash */
+function deletePicturebookCandidate(proj, short, candidateUrl) {
+    const idx = (short.picturebookCandidates || []).findIndex(c => c.url === candidateUrl);
+    if (idx < 0) return;
+    const removed = short.picturebookCandidates.splice(idx, 1)[0];
+    if (!proj.trash) proj.trash = [];
+    proj.trash.push({
+        type: 'picturebook', url: removed.url, path: removed.path || null,
+        sourceUrl: null, createdAt: removed.createdAt || null,
+        deletedAt: new Date().toISOString(), settings: null,
+        fromId: short.id, fromName: `#${short.order}`, fromType: 'short',
+    });
+    // If the active picturebook was deleted, switch to another candidate or clear
+    if (short.picturebookUrl === removed.url) {
+        const next = short.picturebookCandidates[0] || null;
+        if (next) {
+            short.picturebookUrl = next.url;
+            short.picturebookPath = next.path || null;
+        } else {
+            short.picturebookUrl = null;
+            short.picturebookPath = null;
+            short.picturebookStatus = null;
+            short.picturebookError = null;
+            short.picturebook = false;
+        }
+    }
+}
+
+/** Render picturebook candidates strip HTML for a short */
+function renderPicturebookCandidatesHTML(short) {
+    const candidates = short.picturebookCandidates || [];
+    if (candidates.length <= 1) return '';
+    return `
+    <div>
+        <label class="text-xs" style="color:var(--text-muted)">绘本插画历史版本 (${candidates.length})</label>
+        <div class="flex gap-2 mt-1 overflow-x-auto pb-1 pt-1" id="pbCandidatesList" style="overflow-y:visible">
+            ${candidates.map((c, i) => {
+                const isActive = c.url === short.picturebookUrl;
+                const label = `v${i + 1}`;
+                const date = c.createdAt ? new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:80px;position:relative">
+                    <div class="cursor-pointer rounded-lg overflow-hidden" style="position:relative;width:72px;height:72px;border:2px solid ${isActive ? 'var(--accent)' : 'var(--border-card)'}" data-pb-candidate-url="${escapeHtml(c.url)}" data-pb-candidate-path="${escapeHtml(c.path || '')}">
+                        <img src="${escapeHtml(resolveUrl(c.url))}" class="w-full h-full" style="object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>不可预览</div>'">
+                        ${isActive ? '<div style="position:absolute;top:2px;right:2px;background:var(--accent);color:white;font-size:9px;padding:1px 4px;border-radius:4px;font-weight:700">当前</div>' : ''}
+                    </div>
+                    <span class="text-xs" style="color:var(--text-faint)">${label} ${date}</span>
+                    ${!isActive ? `<button class="pb-candidate-delete" data-pb-candidate-delete="${escapeHtml(c.url)}" title="移到回收站" style="position:absolute;top:-4px;right:-2px;background:rgba(239,68,68,0.8);color:white;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer;display:none;padding:0">✕</button>` : ''}
+                </div>`;
+            }).join('')}
+        </div>
+    </div>`;
+}
+
+/** Attach click handlers for picturebook candidate selection and deletion */
+function attachPicturebookCandidateEvents(short, proj, nodeId, nodeType) {
+    const list = $('pbCandidatesList');
+    if (!list) return;
+    list.querySelectorAll('.flex-shrink-0').forEach(wrapper => {
+        const delBtn = wrapper.querySelector('.pb-candidate-delete');
+        if (delBtn) {
+            wrapper.onmouseenter = () => delBtn.style.display = '';
+            wrapper.onmouseleave = () => delBtn.style.display = 'none';
+        }
+    });
+    list.querySelectorAll('[data-pb-candidate-url]').forEach(el => {
+        el.onclick = async () => {
+            selectPicturebookCandidate(short, el.dataset.pbCandidateUrl);
+            await saveProject(proj);
+            renderDetailPanel(nodeId, nodeType);
+            renderTreePanel();
+            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            showToast('已切换绘本插画版本', 'success');
+        };
+    });
+    list.querySelectorAll('[data-pb-candidate-delete]').forEach(btn => {
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+            deletePicturebookCandidate(proj, short, btn.dataset.pbCandidateDelete);
+            await saveProject(proj);
+            renderDetailPanel(nodeId, nodeType);
+            renderTreePanel();
+            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            showToast('已移到回收站', 'info');
+        };
+    });
+}
+
 // ============ Trash / 回收站 ============
 
 function renderTrashView(panel, proj) {
@@ -3397,8 +3632,10 @@ function renderTrashView(panel, proj) {
             <div class="flex flex-wrap gap-3">
                 ${sorted.map((t, i) => {
                     const isVideo = t.type === 'video';
+                    const isPicturebook = t.type === 'picturebook';
                     const date = t.deletedAt ? new Date(t.deletedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-                    const fromLabel = t.fromName ? `${t.fromType === 'short' ? '分镜' : t.fromType === 'character' ? '角色' : t.fromType === 'scene' ? '场景' : t.fromType === 'prop' ? '道具' : ''} ${t.fromName}` : '';
+                    const fromLabel = t.fromName ? `${t.fromType === 'short' ? (isPicturebook ? '绘本 分镜' : '分镜') : t.fromType === 'character' ? '角色' : t.fromType === 'scene' ? '场景' : t.fromType === 'prop' ? '道具' : ''} ${t.fromName}` : '';
+                    const badgeIcon = isVideo ? '🎬' : isPicturebook ? '📖' : '🖼️';
                     return `<div class="flex flex-col items-center gap-1" style="width:${isVideo ? '120' : '80'}px">
                         <div class="rounded-lg overflow-hidden" style="position:relative;width:${isVideo ? '120' : '72'}px;height:${isVideo ? '72' : '72'}px;border:2px solid var(--border-card);background:var(--bg-panel)">
                             ${isVideo
@@ -3406,7 +3643,7 @@ function renderTrashView(panel, proj) {
                                 : (t.url && t.url.startsWith('asset://')
                                     ? `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-muted)">虚拟人像</div>`
                                     : `<img src="${escapeHtml(resolveUrl(t.url))}" class="w-full h-full" style="object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>不可预览</div>'">`)}
-                            <div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,0.6);color:white;font-size:8px;padding:1px 4px;border-radius:3px">${isVideo ? '🎬' : '🖼️'}</div>
+                            <div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,0.6);color:white;font-size:8px;padding:1px 4px;border-radius:3px">${badgeIcon}</div>
                         </div>
                         <span class="text-xs" style="color:var(--text-faint);text-align:center;line-height:1.2">${escapeHtml(fromLabel)}</span>
                         <span class="text-xs" style="color:var(--text-faint);font-size:9px">${date}</span>
@@ -3444,6 +3681,23 @@ function renderTrashView(panel, proj) {
                         short.videoCandidates.push(restoreCandidate);
                     }
                     showToast(`已恢复到 #${short.order} 的历史版本`, 'success');
+                } else {
+                    showToast('原分镜已不存在，已恢复到回收站外', 'warning');
+                }
+            } else if (removed.type === 'picturebook') {
+                const short = proj.shorts.find(s => s.id === removed.fromId);
+                if (short) {
+                    if (!short.picturebookCandidates) short.picturebookCandidates = [];
+                    if (!short.picturebookCandidates.some(c => c.url === removed.url)) {
+                        short.picturebookCandidates.push({ url: removed.url, path: removed.path || null, createdAt: removed.createdAt || null });
+                    }
+                    if (!short.picturebookUrl) {
+                        short.picturebookUrl = removed.url;
+                        short.picturebookPath = removed.path || null;
+                        short.picturebookStatus = 'succeeded';
+                        short.picturebook = true;
+                    }
+                    showToast(`已恢复到 #${short.order} 的绘本历史版本`, 'success');
                 } else {
                     showToast('原分镜已不存在，已恢复到回收站外', 'warning');
                 }
@@ -3687,7 +3941,7 @@ async function submitParallelTask(short, proj, promptOverride) {
     if (!state.token) { showToast('请先登录', 'error'); return; }
     if (!short.prompt?.trim()) { showToast('请先填写提示词', 'error'); return; }
 
-    const model = short.modelOverride || proj.settings.model;
+    const model = getGlobalVideoModel();
     const duration = short.duration || proj.settings.defaultDuration;
     const ratio = short.ratio || proj.settings.ratio;
     const generateAudio = short.generateAudioOverride ?? proj.settings.generateAudio;

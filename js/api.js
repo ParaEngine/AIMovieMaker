@@ -6,20 +6,11 @@ import { state, sdk, syncShortReferenceVideoUrl, syncReferenceVideoDependents } 
 import { showToast } from './utils.js';
 import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, updateTaskLogEntry, saveAssetToLocal } from './storage.js';
 import { recordLLMCall, recordImageCall, recordVideoCall, updateVideoCallUsage } from './stats.js';
-import { getGlobalPromptPreset } from './global_settings.js';
+import { getGlobalPromptPreset, getGlobalVideoModel } from './global_settings.js';
 
 /** Resolve prompt preset: project-level > global setting */
 function getProjectPromptPreset(project) {
     return project?.settings?.promptPreset || getGlobalPromptPreset();
-}
-
-function resolveLocalVideoModelSettings(model) {
-    const fallbackModel = model || 'keepwork-video';
-    try {
-        return sdk?.localAPIKeySettings?.resolveModelSettings?.(fallbackModel) || { model: fallbackModel, apiKey: '' };
-    } catch (_) {
-        return { model: fallbackModel, apiKey: '' };
-    }
 }
 
 function buildStreamPreviewText(contentText, streamMeta) {
@@ -194,32 +185,31 @@ export async function saveGeneratedVideoAsset(project, short, sourceUrl) {
 
 // ---- LLM Chat (non-streaming, kept for compatibility) ----
 export async function llmChat(systemPrompt, userMessage) {
-    const { getGlobalLLMApiKey } = await import('./global_settings.js');
-    const apiKey = getGlobalLLMApiKey();
-    const headers = { 'Authorization': `Bearer ${state.token}`, 'Content-Type': 'application/json' };
-    if (apiKey) headers['API_KEY'] = apiKey;
+    if (!sdk || !sdk.aiGenerators) throw new Error('KeepworkSDK aiGenerators 不可用');
+    const { getGlobalLLM } = await import('./global_settings.js');
+    const model = getGlobalLLM();
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+    ];
     const t0 = Date.now();
-    const resp = await fetch(`${state.apiBase}/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userMessage }
-            ],
-            response_format: { type: 'json_object' }
-        })
-    });
-    if (!resp.ok) {
-        recordLLMCall({ label: 'llmChat', promptText: systemPrompt + userMessage, responseText: '', success: false, error: `HTTP ${resp.status}`, durationMs: Date.now() - t0 });
-        throw new Error(`LLM 请求失败: HTTP ${resp.status}`);
+    let data;
+    try {
+        data = await sdk.aiGenerators.chat({
+            messages,
+            model,
+            stream: false,
+            responseFormat: { type: 'json_object' },
+        });
+    } catch (err) {
+        recordLLMCall({ label: 'llmChat', model, promptText: systemPrompt + userMessage, responseText: '', success: false, error: err.message || String(err), durationMs: Date.now() - t0 });
+        throw new Error(`LLM 请求失败: ${err.message || err}`);
     }
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = data?.choices?.[0]?.message?.content;
     if (!content) throw new Error('LLM 未返回内容');
     recordLLMCall({
         label: 'llmChat',
-        model: data.model || '',
+        model: data.model || model,
         promptText: systemPrompt + userMessage,
         responseText: content,
         promptTokens: data.usage?.prompt_tokens,
@@ -240,15 +230,11 @@ export async function llmChatStream(systemPrompt, userMessage, onChunk, _callLab
     if (!sdk || !sdk.aiChat) throw new Error('KeepworkSDK aiChat 不可用');
 
     const { getGlobalLLM } = await import('./global_settings.js');
-    const { getGlobalLLMApiKey } = await import('./global_settings.js');
-    const apiKey = getGlobalLLMApiKey();
     const modelName = getGlobalLLM();
-    const extraHeaders = apiKey ? { 'API_KEY': apiKey } : undefined;
     const session = sdk.aiChat.createSession({
         stream: true,
         model: modelName,
         temperature: 0,
-        extraHeaders,
     });
 
     const prompt = `${systemPrompt}\n\n${userMessage}`;
@@ -889,14 +875,24 @@ export async function submitGenVideo(short, project, options = {}) {
             if (d === -1) return -1;
             return Math.max(CONFIG.CLIP_DURATION_MIN, Math.min(CONFIG.CLIP_DURATION_MAX, d));
         })(),
-        model: short.modelOverride || project.settings.model,
+        model: getGlobalVideoModel(),
         generateAudio: short.generateAudioOverride ?? project.settings.generateAudio,
         watermark: short.watermark || false,
+        seed: (() => {
+            const raw = (short.seed !== undefined && short.seed !== null && short.seed !== '')
+                ? short.seed
+                : project.settings.seed;
+            if (raw === undefined || raw === null || raw === '') return -1;
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n)) return -1;
+            // Seedance valid range: [-1, 2^32-1]
+            return Math.max(-1, Math.min(4294967295, n));
+        })(),
     };
-    const localVideoSettings = resolveLocalVideoModelSettings(body.model);
-    if (localVideoSettings.model) body.model = localVideoSettings.model;
-    if (localVideoSettings.apiKey) body.apiKey = localVideoSettings.apiKey;
 
+    // Pass the abstract model name (e.g. 'keepwork-video') through unchanged.
+    // sdk.aiGenerators.genVideo() owns the LocalAPIKeySettings resolution and
+    // routing (Keepwork proxy vs OpenRouter direct).
     let taskId;
     const t0 = Date.now();
     try {
@@ -907,10 +903,10 @@ export async function submitGenVideo(short, project, options = {}) {
             ratio: body.ratio,
             generateAudio: body.generateAudio,
             watermark: body.watermark,
+            seed: body.seed,
             images: body.images,
             videos: body.videos,
             audios: body.audios,
-            apiKey: body.apiKey,
         });
         recordVideoCall({ label: '生成视频', model: body.model, taskId, duration: body.duration, success: true, durationMs: Date.now() - t0 });
     } catch (err) {
@@ -948,7 +944,6 @@ export async function submitParallelGenVideo(short, project, variants) {
         // Create a temporary shallow copy of the short with overridden settings
         const overriddenShort = {
             ...short,
-            modelOverride: v.model || short.modelOverride,
             duration: v.duration || short.duration,
             ratio: v.ratio || short.ratio,
             generateAudioOverride: v.generateAudio ?? short.generateAudioOverride,
@@ -959,7 +954,6 @@ export async function submitParallelGenVideo(short, project, variants) {
             ...project,
             settings: {
                 ...project.settings,
-                model: v.model || project.settings.model,
                 defaultDuration: v.duration || project.settings.defaultDuration,
                 ratio: v.ratio || project.settings.ratio,
                 generateAudio: v.generateAudio ?? project.settings.generateAudio,
@@ -971,7 +965,7 @@ export async function submitParallelGenVideo(short, project, variants) {
                 variantIndex: i,
                 taskId,
                 settings: {
-                    model: overriddenShort.modelOverride || overriddenProject.settings.model,
+                    model: getGlobalVideoModel(),
                     duration: overriddenShort.duration || overriddenProject.settings.defaultDuration,
                     ratio: overriddenShort.ratio || overriddenProject.settings.ratio,
                     generateAudio: overriddenShort.generateAudioOverride ?? overriddenProject.settings.generateAudio,
@@ -987,7 +981,7 @@ export async function submitParallelGenVideo(short, project, variants) {
                 variantIndex: i,
                 taskId: null,
                 settings: {
-                    model: v.model || project.settings.model,
+                    model: getGlobalVideoModel(),
                     duration: v.duration || project.settings.defaultDuration,
                     ratio: v.ratio || project.settings.ratio,
                     generateAudio: v.generateAudio ?? project.settings.generateAudio,
@@ -1023,11 +1017,9 @@ export function startPolling(taskId, projectId, onUpdate) {
             const short = proj.shorts.find(s => s.taskId === taskId);
             // Resolve model from usage details or short/project settings for apiKey passthrough
             const usageDetail = proj.videoGenUsage?.details?.find(d => d.taskId === taskId);
-            const pollModel = usageDetail?.model || short?.modelOverride || proj.settings?.model;
-            const localVideoSettings = resolveLocalVideoModelSettings(pollModel);
+            const pollModel = usageDetail?.model || getGlobalVideoModel();
             const data = await sdk.aiGenerators.getVideoTaskStatus(taskId, {
-                model: localVideoSettings.model || pollModel,
-                apiKey: localVideoSettings.apiKey || undefined,
+                model: pollModel,
             });
             // Check if this taskId belongs to a parallel task
             const parallelMatch = !short ? findParallelTask(proj, taskId) : null;
@@ -1280,13 +1272,14 @@ export async function generateSceneImage(sceneDescription, project) {
 }
 
 /**
- * Generate a picturebook (绘本) image for a shot.
- * Combines scene, character and prompt info into a single static illustration.
+ * Build the picturebook (绘本) prompt, reference images and dimensions for a shot.
+ * Pure helper — does not invoke the image API. Used by both the auto-generate
+ * path and the editable modal path.
  * @param {Object} short - Shot object
  * @param {Object} project - Project object
- * @returns {Promise<string|null>} Image URL
+ * @returns {{ prompt: string, images: Array<{url:string,role:string}>, width: number, height: number, ratio: string }}
  */
-export async function generateShotPicturebookImage(short, project) {
+export function buildShotPicturebookPrompt(short, project) {
     const style = getImageStyleInstruction(project);
     const ratio = short.ratio || project.settings.ratio || '16:9';
 
@@ -1294,28 +1287,56 @@ export async function generateShotPicturebookImage(short, project) {
     // Include ratio hint in the prompt for composition guidance
     const ratioHint = ratio === '9:16' ? '竖幅构图(9:16)' : ratio === '1:1' ? '方形构图(1:1)' : '宽幅构图(16:9)';
 
-    // Collect reference images from scene, characters, props, and extra images
+    // Collect reference images from scene, characters, props, and extra images.
+    // Track each entity's reference-image index (1-based) so the prompt can
+    // refer to it as e.g. "角色 小明（参考图1）" instead of repeating its
+    // textual description.
     const images = [];
     const scene = project.scenes.find(s => s.id === short.sceneId);
-    if (scene?.imageUrl) images.push({ url: scene.imageUrl, role: 'reference_image' });
+    let sceneRefIdx = 0;
+    if (scene?.imageUrl) {
+        images.push({ url: scene.imageUrl, role: 'reference_image' });
+        sceneRefIdx = images.length;
+    }
+    const charRefIdx = {};
     (short.characterIds || []).forEach(cid => {
         const ch = project.characters.find(c => c.id === cid);
         const imgUrl = (ch?.anchorVerified && ch?.anchorImageUrl) ? ch.anchorImageUrl : ch?.imageUrl;
-        if (imgUrl) images.push({ url: imgUrl, role: 'reference_image' });
+        if (imgUrl) {
+            images.push({ url: imgUrl, role: 'reference_image' });
+            charRefIdx[cid] = images.length;
+        }
     });
+    const propRefIdx = {};
     (short.propIds || []).forEach(pid => {
         const pr = project.props.find(p => p.id === pid);
         const imgUrl = (pr?.anchorVerified && pr?.anchorImageUrl) ? pr.anchorImageUrl : pr?.imageUrl;
-        if (imgUrl) images.push({ url: imgUrl, role: 'reference_image' });
+        if (imgUrl) {
+            images.push({ url: imgUrl, role: 'reference_image' });
+            propRefIdx[pid] = images.length;
+        }
     });
     if (short.imageUrls) short.imageUrls.forEach(u => images.push({ url: u, role: 'reference_image' }));
 
-    // Build context from scene + characters
+    // Build context from scene + characters + props. When an entity already
+    // contributed a reference image, cite it by index instead of repeating its
+    // textual description.
     const parts = [];
-    if (scene?.description) parts.push(`场景：${scene.description}`);
+    if (scene) {
+        if (sceneRefIdx) parts.push(`场景（参考图${sceneRefIdx}）`);
+        else if (scene.description) parts.push(`场景：${scene.description}`);
+    }
     (short.characterIds || []).forEach(cid => {
         const ch = project.characters.find(c => c.id === cid);
-        if (ch) parts.push(`角色 ${ch.name}：${ch.description || ''}`);
+        if (!ch) return;
+        if (charRefIdx[cid]) parts.push(`角色 ${ch.name}（参考图${charRefIdx[cid]}）`);
+        else parts.push(`角色 ${ch.name}：${ch.description || ''}`);
+    });
+    (short.propIds || []).forEach(pid => {
+        const pr = project.props.find(p => p.id === pid);
+        if (!pr) return;
+        if (propRefIdx[pid]) parts.push(`道具 ${pr.name}（参考图${propRefIdx[pid]}）`);
+        else if (pr.description) parts.push(`道具 ${pr.name}：${pr.description}`);
     });
     if (short.lighting) parts.push(`灯光：${short.lighting}`);
     if (short.emotion) parts.push(`情绪：${short.emotion}`);
@@ -1327,5 +1348,17 @@ export async function generateShotPicturebookImage(short, project) {
         ? `生成绘本风格的插画,${style},${ratioHint},画面精美细腻,适合作为故事绘本的一页。${context}画面描述：${shotPrompt}`
         : `生成精美的绘本风格插画,${ratioHint},画面精美细腻,适合作为故事绘本的一页。${context}画面描述：${shotPrompt}`;
 
-    return genImage(prompt, { width: w, height: h, images: images.length > 0 ? images : undefined });
+    return { prompt, images, width: w, height: h, ratio };
+}
+
+/**
+ * Generate a picturebook (绘本) image for a shot.
+ * Combines scene, character and prompt info into a single static illustration.
+ * @param {Object} short - Shot object
+ * @param {Object} project - Project object
+ * @returns {Promise<string|null>} Image URL
+ */
+export async function generateShotPicturebookImage(short, project) {
+    const { prompt, images, width, height } = buildShotPicturebookPrompt(short, project);
+    return genImage(prompt, { width, height, images: images.length > 0 ? images : undefined });
 }

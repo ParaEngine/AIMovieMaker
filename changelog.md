@@ -1,5 +1,15 @@
 # AIMovieMaker Changelog
 
+## 2026-05-08
+- feat: picturebook (绘本插画) now supports version history like videos (`views.js`, `state.js`, `storage.js`)
+  - new `picturebookCandidates` array on shorts; previous image is preserved as a candidate before regeneration / re-upload
+  - history strip rendered under the picturebook image with click-to-switch and per-version delete
+  - removing an active picturebook moves it to the trash and falls back to the latest remaining candidate
+  - trash supports restoring `picturebook` items back to the originating short
+
+## 2026-05-07
+- fix: pass existing reference image (anchor / `imageUrl`) to `genImage` when AI-generating character / prop / scene images so that uploaded reference images now actually influence the result (`views.js`)
+
 ## 2026-04-22
 - Add image generation module (`genImage.js`)
 - Add hover preview for clips (`hoverPreview.js`)

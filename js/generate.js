@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { escapeHtml, showToast, $, resolveUrl } from './utils.js';
 import { saveProject, appendTaskLogEntry } from './storage.js';
 import { submitGenVideo, startPolling, stopPolling, runConsistencyReview } from './api.js';
+import { getGlobalVideoModel } from './global_settings.js';
 import { navigateTo, setViewContainerPadding } from './views.js';
 
 export async function onGenerationUpdate(proj, updatedShort) {
@@ -74,7 +75,7 @@ export async function tryGenerateNext(proj) {
                 shortId: short.id,
                 shortOrder: short.order,
                 prompt: (short.prompt || '').slice(0, 200),
-                model: short.modelOverride || proj.settings?.model || '',
+                model: getGlobalVideoModel(),
                 duration: short.duration || proj.settings?.defaultDuration || 0,
                 status: 'running',
             });

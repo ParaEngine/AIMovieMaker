@@ -2,7 +2,7 @@
 
 import { CONFIG, getPromptPresetOptions, getAllPromptPresetOptions } from './config.js';
 import { openPromptsEditor } from './promptsEditor.js';
-import { state, getSupportedVideoModels } from './state.js';
+import { state } from './state.js';
 import { escapeHtml, $, showToast } from './utils.js';
 import { saveProject } from './storage.js';
 import VoiceTypeSelector from './VoiceTypeSelector.js';
@@ -56,14 +56,8 @@ export function renderPlotSettings(panel, proj, { onAnalyze, onSave }) {
                     </div>
                 </div>
 
-                <!-- Row: Model, Style, Audio -->
+                <!-- Row: Style, Audio -->
                 <div class="flex flex-wrap gap-2 items-end">
-                    <div>
-                        <span class="text-xs" style="color:var(--text-muted)">模型</span>
-                        <select id="settingModelInline" class="modal-input mt-1" style="width:140px;font-size:11px;padding:4px">
-                            ${getSupportedVideoModels().map(m => `<option value="${escapeHtml(m)}" ${proj.settings.model === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-                        </select>
-                    </div>
                     <div>
                         <span class="text-xs" style="color:var(--text-muted)">风格</span>
                         <select id="settingStylePresetInline" class="modal-input mt-1" style="width:130px;font-size:11px;padding:4px">
@@ -74,6 +68,10 @@ export function renderPlotSettings(panel, proj, { onAnalyze, onSave }) {
                         <input id="audioToggleInline" type="checkbox" ${proj.settings.generateAudio ? 'checked' : ''} style="accent-color:var(--accent)">
                         音效
                     </label>
+                    <div title="随机种子 (Seed)：整数 [-1, 2^32-1]。留空或 -1 表示随机；相同 seed 可生成相似结果，提升上下文连贯性。">
+                        <span class="text-xs" style="color:var(--text-muted)">随机种子</span>
+                        <input id="settingSeedInline" type="number" class="modal-input mt-1" style="width:120px;font-size:11px;padding:4px" min="-1" max="4294967295" step="1" placeholder="-1 (随机)" value="${(proj.settings.seed === undefined || proj.settings.seed === null || proj.settings.seed === -1) ? '' : proj.settings.seed}">
+                    </div>
                 </div>
 
                 <!-- Custom style row -->

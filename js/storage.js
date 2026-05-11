@@ -70,7 +70,7 @@ function buildProjectSummary(project) {
 
 /** Values considered "empty/default" and omitted when saving to reduce file size. */
 const SHORT_DEFAULTS = {
-    propIds: [], characterIds: [], imageUrls: [], imagePaths: [], audioUrls: [], videoCandidates: [], parallelTasks: [], imageCandidates: [],
+    propIds: [], characterIds: [], imageUrls: [], imagePaths: [], audioUrls: [], videoCandidates: [], parallelTasks: [], imageCandidates: [], picturebookCandidates: [],
     taskId: null, status: 'pending', videoUrl: null, videoPath: null,
     sourceVideoUrl: null, referenceVideoUrl: null, referenceVideoSourceShortId: null, firstFrameUrl: null, lastFrameUrl: null,
     modelOverride: null, generateAudioOverride: null, watermark: false, error: null,

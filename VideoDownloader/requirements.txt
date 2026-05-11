@@ -1,0 +1,3 @@
+yt-dlp
+# YouTube n-challenge solver (also requires Deno on PATH; not needed for Bilibili)
+yt-dlp-ejs

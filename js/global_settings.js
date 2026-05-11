@@ -10,8 +10,8 @@ const APP_SETTINGS_KEY = 'aimm_app_settings';
 
 const APP_DEFAULTS = {
     chatModel: 'keepwork-flash',
-    imageModel: 'seedream-5.0-lite',  // empty = use SDK default
-    videoModel: 'seedance-2.0-fast',
+    imageModel: 'keepwork-image',
+    videoModel: 'keepwork-video',
     enableImageCacheKey: false,
 };
 
