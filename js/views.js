@@ -469,19 +469,31 @@ async function renderProjectList() {
                     console.warn('[AIMM] Reattach local dir failed:', e.message);
                 }
             }
-            // Recover running tasks from task log that may not be in shorts
+            // Recover running tasks from task log that may not be in shorts.
+            // Long-running tasks (e.g. >30 minutes) are flagged with a warning so the
+            // user can decide whether to keep waiting or stop them — some videos
+            // legitimately take hours to finish, so we never auto-fail them here.
+            const LONG_RUNNING_AGE_MS = 30 * 60 * 1000;
             const taskLog = await loadTaskLog(proj);
             const runningLogEntries = taskLog.filter(e => e.status === 'running' && e.taskId);
+            let longRunningCount = 0;
             for (const entry of runningLogEntries) {
                 const short = proj.shorts.find(s => s.id === entry.shortId);
                 if (short && !short.taskId && short.status !== 'succeeded') {
                     short.taskId = entry.taskId;
                     short.status = 'running';
                 }
+                const submittedAt = entry.submittedAt ? Date.parse(entry.submittedAt) : 0;
+                if (submittedAt && (Date.now() - submittedAt) > LONG_RUNNING_AGE_MS) {
+                    longRunningCount++;
+                }
             }
             const runningShorts = proj.shorts?.filter(s => (s.status === 'running' || s.status === 'pending') && s.taskId) || [];
             if (runningShorts.length > 0) {
-                const resume = confirm(`该项目有 ${runningShorts.length} 个短片正在生成中。\n\n点击"确定"继续跟踪生成进度，点击"取消"停止所有生成任务。`);
+                const longRunningHint = longRunningCount > 0
+                    ? `\n\n⚠️ 其中 ${longRunningCount} 个任务已超过 30 分钟仍在生成中，可能仍在排队或已中断 — 由您决定继续等待还是停止。`
+                    : '';
+                const resume = confirm(`该项目有 ${runningShorts.length} 个短片正在生成中。${longRunningHint}\n\n点击"确定"继续跟踪生成进度，点击"取消"停止所有生成任务。`);
                 if (resume) {
                     proj.status = 'generating';
                     // Rebuild the generation queue so the progress bar renders correctly
@@ -3563,11 +3575,20 @@ function addImageCandidate(item, imageUrl, imagePath) {
     }
     item.imageUrl = imageUrl;
     item.imagePath = imagePath || null;
-    // Save to local disk if in local mode
+    // Save to local disk if in local mode (surface failures so users notice)
     const proj = state.currentProject;
     if (proj?.localMode) {
         const name = item.name || item.id || 'image';
-        saveAssetToLocal(proj, imageUrl, 'images', `${name}.png`).catch(() => {});
+        saveAssetToLocal(proj, imageUrl, 'images', `${name}.png`).then(res => {
+            if (!res || res.skipped) return;
+            if (res.ok) {
+                item.localImagePath = res.localPath;
+                item.localSaveError = null;
+            } else {
+                item.localSaveError = res.error || '本地保存失败';
+                showToast(`图片本地保存失败: ${item.localSaveError}`, 'error');
+            }
+        }).catch(() => {});
     }
 }
 

@@ -187,6 +187,28 @@ export function renderGeneration() {
         };
     });
 
+    document.querySelectorAll('[data-retry-localsave]').forEach(btn => {
+        btn.onclick = async (ev) => {
+            ev.stopPropagation();
+            const s = proj.shorts.find(x => x.id === btn.dataset.retryLocalsave);
+            if (!s || !s.videoUrl) return;
+            const { saveAssetToLocal } = await import('./storage.js');
+            const res = await saveAssetToLocal(proj, s.videoUrl, 'videos', `shot_${s.order}_video.mp4`);
+            if (res?.ok) {
+                s.localVideoPath = res.localPath;
+                s.localSaveError = null;
+                showToast(`短片 #${s.order} 本地保存成功`, 'success');
+            } else if (res?.skipped) {
+                showToast('未启用本地模式或目录未挂载', 'info');
+            } else {
+                s.localSaveError = res?.error || '本地保存失败';
+                showToast(`重试失败: ${s.localSaveError}`, 'error');
+            }
+            await saveProject(proj);
+            renderGeneration();
+        };
+    });
+
     document.querySelectorAll('[data-play-url]').forEach(el => {
         el.onclick = () => {
             $('videoPreview').src = resolveUrl(el.dataset.playUrl);
@@ -328,5 +350,8 @@ function renderGenCard(s) {
     const parallelBadge = hasParallel ? `<span class="text-xs" style="color:#c084fc;margin-left:4px" title="并行生成 ${parallelTasks.length} 个变体">⚡${parallelTasks.length}</span>` : '';
     const candidateCount = (s.videoCandidates || []).length;
     const candidateBadge = candidateCount > 1 ? `<span class="text-xs" style="color:var(--text-faint);margin-left:4px">${candidateCount} 版本</span>` : '';
-    return `<div class="card-flat"><div class="flex items-center justify-between mb-2"><span class="text-xs font-semibold" style="color:var(--text-secondary)">短片 #${s.order}${parallelBadge}${candidateBadge}</span>${statusBadge}</div>${body}<p class="text-xs mt-2 line-clamp-2" style="color:var(--text-muted)">${escapeHtml(s.prompt).slice(0, 80)}</p></div>`;
+    const localSaveBadge = s.localSaveError
+        ? `<div class="text-xs mt-1 px-2 py-1 rounded" style="background:rgba(245,158,11,0.12);color:#fbbf24;border:1px solid rgba(245,158,11,0.3)" title="${escapeHtml(s.localSaveError)}">⚠️ 本地保存失败 <button class="ml-1 underline" data-retry-localsave="${s.id}">重试</button></div>`
+        : '';
+    return `<div class="card-flat"><div class="flex items-center justify-between mb-2"><span class="text-xs font-semibold" style="color:var(--text-secondary)">短片 #${s.order}${parallelBadge}${candidateBadge}</span>${statusBadge}</div>${body}${localSaveBadge}<p class="text-xs mt-2 line-clamp-2" style="color:var(--text-muted)">${escapeHtml(s.prompt).slice(0, 80)}</p></div>`;
 }

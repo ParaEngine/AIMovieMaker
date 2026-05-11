@@ -630,40 +630,61 @@ function collectProjectUrls(project) {
             return `file_${Math.random().toString(36).slice(2, 8)}${fallbackExt}`;
         }
     }
+    // Unicode-safe stem (keeps Chinese / Japanese / Korean), strips fs-unsafe chars.
+    // Includes a short id tag so two items sharing the same display name don't clobber.
+    function safeStem(name, id, fallback = 'item') {
+        let s = String(name || fallback).normalize('NFC').trim()
+            .replace(/[\\/:*?"<>|#%&{}\[\]\^`\s\u0000-\u001f]+/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^[._-]+|[._-]+$/g, '');
+        if (!s) s = fallback;
+        if (s.length > 60) s = s.slice(0, 60);
+        const idTag = String(id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6);
+        return idTag ? `${s}-${idTag}` : s;
+    }
+    function extOf(url, fallback = 'png') {
+        const m = String(url || '').split('?')[0].match(/\.([a-zA-Z0-9]{1,5})$/);
+        return (m ? m[1] : fallback).toLowerCase();
+    }
     (project.characters || []).forEach(c => {
-        if (c.imageUrl) add(c.imageUrl, 'images/characters', `${c.name || c.id}.${c.imageUrl.split('.').pop().split('?')[0] || 'png'}`);
-        if (c.anchorImageUrl) add(c.anchorImageUrl, 'images/characters', `${c.name || c.id}_anchor.${c.anchorImageUrl.split('.').pop().split('?')[0] || 'png'}`);
+        const stem = safeStem(c.name, c.id, 'character');
+        if (c.imageUrl) add(c.imageUrl, 'images/characters', `${stem}.${extOf(c.imageUrl)}`);
+        if (c.anchorImageUrl) add(c.anchorImageUrl, 'images/characters', `${stem}_anchor.${extOf(c.anchorImageUrl)}`);
         (c.imageCandidates || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'images/characters', `${c.name || c.id}_candidate_${i}.${filenameFromUrl(u, '.png').split('.').pop()}`);
+            if (typeof u === 'string') add(u, 'images/characters', `${stem}_candidate_${i}.${extOf(u)}`);
         });
     });
     (project.props || []).forEach(p => {
-        if (p.imageUrl) add(p.imageUrl, 'images/props', `${p.name || p.id}.${p.imageUrl.split('.').pop().split('?')[0] || 'png'}`);
-        if (p.anchorImageUrl) add(p.anchorImageUrl, 'images/props', `${p.name || p.id}_anchor.${p.anchorImageUrl.split('.').pop().split('?')[0] || 'png'}`);
+        const stem = safeStem(p.name, p.id, 'prop');
+        if (p.imageUrl) add(p.imageUrl, 'images/props', `${stem}.${extOf(p.imageUrl)}`);
+        if (p.anchorImageUrl) add(p.anchorImageUrl, 'images/props', `${stem}_anchor.${extOf(p.anchorImageUrl)}`);
         (p.imageCandidates || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'images/props', `${p.name || p.id}_candidate_${i}.${filenameFromUrl(u, '.png').split('.').pop()}`);
+            if (typeof u === 'string') add(u, 'images/props', `${stem}_candidate_${i}.${extOf(u)}`);
         });
     });
     (project.scenes || []).forEach(s => {
-        if (s.imageUrl) add(s.imageUrl, 'images/scenes', `${s.name || s.id}.${s.imageUrl.split('.').pop().split('?')[0] || 'png'}`);
+        const stem = safeStem(s.name, s.id, 'scene');
+        if (s.imageUrl) add(s.imageUrl, 'images/scenes', `${stem}.${extOf(s.imageUrl)}`);
         (s.imageCandidates || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'images/scenes', `${s.name || s.id}_candidate_${i}.${filenameFromUrl(u, '.png').split('.').pop()}`);
+            if (typeof u === 'string') add(u, 'images/scenes', `${stem}_candidate_${i}.${extOf(u)}`);
         });
     });
     (project.shorts || []).forEach(sh => {
-        if (sh.videoUrl) add(sh.videoUrl, 'videos', `shot_${sh.order}_video.${filenameFromUrl(sh.videoUrl, '.mp4').split('.').pop()}`);
-        if (sh.sourceVideoUrl && sh.sourceVideoUrl !== sh.videoUrl) add(sh.sourceVideoUrl, 'videos', `shot_${sh.order}_source.${filenameFromUrl(sh.sourceVideoUrl, '.mp4').split('.').pop()}`);
-        if (sh.referenceVideoUrl) add(sh.referenceVideoUrl, 'videos', `shot_${sh.order}_ref.${filenameFromUrl(sh.referenceVideoUrl, '.mp4').split('.').pop()}`);
-        if (sh.firstFrameUrl) add(sh.firstFrameUrl, 'images/frames', `shot_${sh.order}_first.${filenameFromUrl(sh.firstFrameUrl, '.png').split('.').pop()}`);
-        if (sh.lastFrameUrl) add(sh.lastFrameUrl, 'images/frames', `shot_${sh.order}_last.${filenameFromUrl(sh.lastFrameUrl, '.png').split('.').pop()}`);
+        const stem = `shot_${String(sh.order).padStart(3, '0')}`;
+        if (sh.videoUrl) add(sh.videoUrl, 'videos', `${stem}_video.${extOf(sh.videoUrl, 'mp4')}`);
+        if (sh.sourceVideoUrl && sh.sourceVideoUrl !== sh.videoUrl) add(sh.sourceVideoUrl, 'videos', `${stem}_source.${extOf(sh.sourceVideoUrl, 'mp4')}`);
+        if (sh.referenceVideoUrl) add(sh.referenceVideoUrl, 'videos', `${stem}_ref.${extOf(sh.referenceVideoUrl, 'mp4')}`);
+        if (sh.firstFrameUrl) add(sh.firstFrameUrl, 'images/frames', `${stem}_first.${extOf(sh.firstFrameUrl)}`);
+        if (sh.lastFrameUrl) add(sh.lastFrameUrl, 'images/frames', `${stem}_last.${extOf(sh.lastFrameUrl)}`);
         (sh.imageUrls || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'images/shots', `shot_${sh.order}_img_${i}.${filenameFromUrl(u, '.png').split('.').pop()}`);
+            if (typeof u === 'string') add(u, 'images/shots', `${stem}_img_${i}.${extOf(u)}`);
         });
         (sh.audioUrls || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'audio', `shot_${sh.order}_audio_${i}.${filenameFromUrl(u, '.mp3').split('.').pop()}`);
+            if (typeof u === 'string') add(u, 'audio', `${stem}_audio_${i}.${extOf(u, 'mp3')}`);
         });
         (sh.videoCandidates || []).forEach((u, i) => {
-            if (typeof u === 'string') add(u, 'videos', `shot_${sh.order}_candidate_${i}.${filenameFromUrl(u, '.mp4').split('.').pop()}`);
+            const url = typeof u === 'string' ? u : u?.url;
+            if (typeof url === 'string') add(url, 'videos', `${stem}_candidate_${i}.${extOf(url, 'mp4')}`);
         });
     });
     return urls;
@@ -694,7 +715,16 @@ async function getOrCreateSubDir(dirHandle, subPath) {
 
 async function writeFileToDir(dirHandle, subfolder, filename, blob) {
     const dir = subfolder ? await getOrCreateSubDir(dirHandle, subfolder) : dirHandle;
-    const safe = filename.replace(/[<>:"/\\|?*]/g, '_');
+    // Normalize to NFC so combining characters don't produce filesystem mismatches
+    // across Windows / macOS / Linux and ZIP/sync tooling.
+    let safe = String(filename || 'file').normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+    // Cap length: keep extension, truncate stem. 120 chars is safe across NTFS/APFS/ext4.
+    if (safe.length > 120) {
+        const dot = safe.lastIndexOf('.');
+        const ext = dot > 0 && safe.length - dot <= 8 ? safe.slice(dot) : '';
+        safe = safe.slice(0, 120 - ext.length) + ext;
+    }
+    if (!safe || safe === '.' || safe === '..') safe = `file_${Date.now()}`;
     const fh = await dir.getFileHandle(safe, { create: true });
     const writable = await fh.createWritable();
     await writable.write(blob);
@@ -924,24 +954,27 @@ export function disableLocalMode(project) {
 
 /**
  * Save a single new asset to the local directory (called after generation).
- * Returns the local relative path, or null if not in local mode.
+ * Returns an object describing the outcome:
+ *   { skipped: true, reason }      - not in local mode / no dir handle
+ *   { ok: true, localPath }        - written successfully
+ *   { ok: false, error }           - download or write failed
  */
 export async function saveAssetToLocal(project, cdnUrl, subfolder, filename) {
-    if (!project?.localMode) return null;
+    if (!project?.localMode) return { skipped: true, reason: 'not-local-mode' };
     const dirHandle = _localDirHandles.get(project.id);
-    if (!dirHandle) return null;
+    if (!dirHandle) return { skipped: true, reason: 'no-dir-handle' };
     try {
         const resp = await fetch(cdnUrl);
-        if (!resp.ok) return null;
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
         await writeFileToDir(dirHandle, subfolder, filename, blob);
         const localPath = subfolder ? `${subfolder}/${filename}` : filename;
         project.localAssetMap[cdnUrl] = localPath;
         localBlobCache.set(cdnUrl, URL.createObjectURL(blob));
-        return localPath;
+        return { ok: true, localPath };
     } catch (e) {
         console.warn('[AIMM] saveAssetToLocal failed:', cdnUrl, e.message);
-        return null;
+        return { ok: false, error: e.message || String(e) };
     }
 }
 
